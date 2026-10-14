@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hy2Tun</title>
+<style>
+:root{--bg:#0e1015;--card:#171a21;--card2:#1d212b;--line:#272c38;--tx:#eceff5;--mut:#8b93a5;--ok:#3ddc84;--acc:#7a5cff;--warn:#f0b24a;--bad:#ef5350;--btn:#252a36}
+@media (prefers-color-scheme: light){:root{--bg:#f2f4f8;--card:#fff;--card2:#f6f7fb;--line:#dde2ec;--tx:#171a21;--mut:#667085;--ok:#12a057;--acc:#5b3df5;--warn:#b7791f;--bad:#c92a2a;--btn:#e9ecf3}}
+*{box-sizing:border-box}html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.45 "Segoe UI",system-ui,sans-serif;display:flex;flex-direction:column;user-select:none}
+input,textarea,.sel{user-select:text}
+.top{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.logo{width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,var(--acc),#00c2ff)}
+.top b{font-size:16px}.top .mut{margin-left:auto;font-size:12px}
+main{flex:1;overflow:auto;padding:18px;max-width:640px;width:100%;margin:0 auto}
+nav{display:flex;border-top:1px solid var(--line);background:var(--card)}
+nav button{flex:1;padding:12px 4px;background:none;border:0;color:var(--mut);font:inherit;font-size:13px;cursor:pointer;border-top:2px solid transparent}
+nav button.on{color:var(--tx);border-top-color:var(--acc)}
+.page{display:none}.page.on{display:block}
+.mut{color:var(--mut)}.small{font-size:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:12px}
+h2{font-size:15px;margin:0 0 4px}
+
+/* home */
+.hero{display:flex;flex-direction:column;align-items:center;padding:26px 0 8px}
+.power{width:168px;height:168px;border-radius:50%;border:0;cursor:pointer;color:#fff;font:600 17px "Segoe UI",sans-serif;
+  background:radial-gradient(circle at 30% 25%,#8d74ff,var(--acc));box-shadow:0 10px 40px color-mix(in srgb,var(--acc) 45%,transparent);transition:.25s}
+.power:hover{transform:scale(1.03)}
+.power.connected{background:radial-gradient(circle at 30% 25%,#6ff0aa,#18b862);box-shadow:0 10px 40px color-mix(in srgb,var(--ok) 45%,transparent)}
+.power.connecting{background:radial-gradient(circle at 30% 25%,#ffd37a,#e39b1b);animation:pulse 1.2s infinite}
+.power.error{background:radial-gradient(circle at 30% 25%,#ff8a80,#d32f2f)}
+@keyframes pulse{50%{transform:scale(.96)}}
+.stline{margin-top:16px;font-size:18px;font-weight:600}
+.sub{margin-top:2px;color:var(--mut);font-size:13px;text-align:center;max-width:420px}
+.err{color:var(--bad);margin-top:8px;font-size:13px;text-align:center}
+.speeds{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:20px}
+.speeds div{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+.speeds b{display:block;font-size:20px}
+.srvsel{display:flex;gap:8px;margin-top:18px}
+select,input[type=text],textarea{background:var(--card2);color:var(--tx);border:1px solid var(--line);border-radius:10px;padding:9px 11px;font:inherit;outline:none}
+select{flex:1}input[type=text]{flex:1}
+input:focus,textarea:focus,select:focus{border-color:var(--acc)}
+textarea{width:100%;min-height:90px;resize:vertical;font:13px/1.4 Consolas,monospace}
+.btn{background:var(--btn);color:var(--tx);border:0;border-radius:10px;padding:9px 14px;font:inherit;cursor:pointer}
+.btn.pri{background:var(--acc);color:#fff}.btn.dng{color:var(--bad)}
+.row{display:flex;justify-content:space-between;align-items:center;gap:14px}
+.sw{position:relative;width:48px;height:28px;flex:none}
+.sw input{opacity:0;width:100%;height:100%;position:absolute;margin:0;cursor:pointer;z-index:2}
+.sw span{position:absolute;inset:0;background:var(--line);border-radius:28px;transition:.2s}
+.sw span:before{content:"";position:absolute;width:22px;height:22px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+.sw input:checked+span{background:var(--acc)}.sw input:checked+span:before{transform:translateX(20px)}
+
+/* lists */
+.srv{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;margin-top:8px;background:var(--card2)}
+.srv .n{flex:1;min-width:0}.srv .n b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.srv.act{border-color:var(--ok)}
+.modes{display:grid;gap:8px;margin-top:10px}
+.mode{display:flex;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;cursor:pointer;background:var(--card2)}
+.mode.sel{border-color:var(--acc)}.mode input{margin-top:4px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.chip{display:inline-flex;gap:4px;align-items:center;padding:3px 6px 3px 10px;border-radius:20px;background:color-mix(in srgb,var(--acc) 22%,transparent);font-size:13px}
+.chip button{border:0;background:none;color:var(--mut);cursor:pointer;font-size:15px;padding:0 4px}
+.add{display:flex;gap:8px}
+.note{color:var(--warn);font-size:13px;margin-top:8px;display:none}
+table{width:100%;border-collapse:collapse;font-size:13px}
+td{padding:6px;border-top:1px solid var(--line);word-break:break-all;vertical-align:top}
+.tag{padding:1px 8px;border-radius:20px;font-size:12px;white-space:nowrap}
+.t-tunnel{background:color-mix(in srgb,var(--acc) 22%,transparent);color:var(--acc)}
+.t-direct{background:color-mix(in srgb,var(--ok) 22%,transparent);color:var(--ok)}
+pre{margin:0;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:break-all;color:var(--mut)}
+/* scrollbars in the app palette */
+*{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+::-webkit-scrollbar{width:12px;height:12px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:12px;border:3px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background:var(--mut);border:3px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-corner{background:transparent}
+
+/* compact chips + modals */
+.chip.more{background:var(--btn);color:var(--tx);border:0;cursor:pointer;padding:3px 12px;font:inherit;font-size:13px}
+.chip.more:hover{background:var(--line)}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;padding:16px;z-index:20}
+.modal.on{display:flex}
+.mbox{background:var(--card);border:1px solid var(--line);border-radius:18px;width:100%;max-width:440px;max-height:86vh;display:flex;flex-direction:column;padding:16px;box-shadow:0 20px 60px rgba(0,0,0,.45)}
+.mhead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.mhead h2{margin:0}
+.mlist{overflow:auto;margin:10px 0;display:flex;flex-direction:column;gap:6px;min-height:60px}
+.mitem{display:flex;align-items:center;gap:10px;padding:7px 8px 7px 12px;background:var(--card2);border:1px solid var(--line);border-radius:10px}
+.mitem span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.btn.sm{padding:5px 10px;font-size:13px}
+.mfoot{display:flex;justify-content:space-between;gap:8px;margin-top:4px}
+.qr{display:none;margin:12px auto 4px;width:220px;height:220px;image-rendering:pixelated;background:#fff;padding:10px;border-radius:14px}
+.linkbox{width:100%;min-height:74px;resize:none;font:12px/1.4 Consolas,monospace}
+.srv .acts{display:flex;gap:6px;flex:none}
+.srv .acts .btn{padding:7px 11px;font-size:13px}
+.srv .n span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#toast{position:fixed;left:50%;bottom:70px;transform:translateX(-50%);background:var(--card2);border:1px solid var(--line);padding:8px 14px;border-radius:10px;opacity:0;transition:.25s;pointer-events:none;font-size:13px}
+#toast.on{opacity:1}
+.langbtn{margin-left:auto}
+</style></head><body>
+<div class="top"><div class="logo"></div><b>Hy2Tun</b><button class="btn sm langbtn" id="langBtn" title="Language / Язык">RU</button></div>
+<main>
+
+<!-- HOME -->
+<section class="page on" id="p-home">
+  <div class="hero">
+    <button class="power" id="power" data-i18n="power.connect">Connect</button>
+    <div class="stline" id="stline" data-i18n="state.disconnected">Disconnected</div>
+    <div class="sub" id="stsub" data-i18n="sub.idle">Pick a server and press the button</div>
+    <div class="err" id="sterr"></div>
+  </div>
+  <div class="srvsel"><select id="srvSel"></select></div>
+  <div class="speeds">
+    <div><span class="mut small" data-i18n="stat.down">Download speed</span><b id="down">0</b></div>
+    <div><span class="mut small" data-i18n="stat.up">Upload speed</span><b id="up">0</b></div>
+    <div><span class="mut small" data-i18n="stat.tunnel">Through the tunnel</span><b id="vt">0</b></div>
+    <div><span class="mut small" data-i18n="stat.direct">Direct</span><b id="vd">0</b></div>
+  </div>
+  <div class="card" style="margin-top:12px"><div class="row"><div><h2 data-i18n="auto.title">Connect at startup</h2><div class="mut small" data-i18n="auto.desc">The service brings the tunnel up after the computer starts.</div></div>
+    <label class="sw"><input type="checkbox" id="auto"><span></span></label></div></div>
+  <div class="card"><h2 data-i18n="recent.title">Recent connections</h2><table><tbody id="recent"></tbody></table></div>
+</section>
+
+<!-- SERVERS -->
+<section class="page" id="p-servers">
+  <div class="card"><h2 data-i18n="srv.add">Add a server</h2>
+    <div class="mut small" data-i18n="srv.hint">Paste a link like <code>hy2://password@host:port?sni=…#Name</code></div>
+    <div class="add" style="margin-top:10px"><input type="text" id="linkIn" placeholder="hy2://…"><button class="btn pri" id="linkAdd" data-i18n="btn.add">Add</button></div>
+  </div>
+  <div id="srvList"></div>
+</section>
+
+<!-- RULES -->
+<section class="page" id="p-rules">
+  <div class="card"><h2 data-i18n="mode.title">Mode</h2>
+    <div class="modes">
+      <label class="mode"><input type="radio" name="mode" value="all"><div><b data-i18n="mode.all.t">All traffic through the VPN</b><div class="mut small" data-i18n="mode.all.d">The app list is not used. The exceptions below still apply.</div></div></label>
+      <label class="mode"><input type="radio" name="mode" value="selected"><div><b data-i18n="mode.sel.t">Only selected apps</b><div class="mut small" data-i18n="mode.sel.d">Only the apps in the list go through the VPN (for example all of Chrome). Everything else goes direct.</div></div></label>
+      <label class="mode"><input type="radio" name="mode" value="except"><div><b data-i18n="mode.exc.t">Everything except selected apps</b><div class="mut small" data-i18n="mode.exc.d">Apps in the list go direct, everything else goes through the VPN.</div></div></label>
+    </div>
+  </div>
+  <div class="card" id="appsCard"><h2 data-i18n="apps.title">Apps</h2>
+    <div class="mut small" data-i18n="apps.hint">Process name (<code>chrome.exe</code>) or a full path. You can pick from the running programs.</div>
+    <div class="chips" id="chips"></div>
+    <div class="add"><input type="text" id="appIn" list="procs" placeholder="chrome.exe"><button class="btn pri" id="appAdd" data-i18n="btn.add">Add</button></div>
+    <datalist id="procs"></datalist>
+    <label class="row" style="margin-top:12px;justify-content:flex-start"><input type="checkbox" id="kids"><span class="small" data-i18n="apps.kids">Include child processes (helpers and launchers)</span></label>
+    <div class="row" style="margin-top:14px"><div><b data-i18n="kill.title">Kill switch</b><div class="mut small" data-i18n="kill.desc">While the VPN is off, the selected apps cannot reach the internet directly (only in the "Only selected apps" mode).</div></div><label class="sw"><input type="checkbox" id="kill"><span></span></label></div>
+    <div class="note" id="emptyApps" data-i18n="apps.empty">The list is empty: no app is selected in this mode.</div>
+  </div>
+  <div class="card"><div class="row"><div>
+    <h2 data-i18n="ru.title">Proxy Russian resources</h2>
+    <div class="mut small" data-i18n="ru.desc">Off: <b>.ru, .рф, Yandex, VK</b> and Russian IP addresses go direct, bypassing the server, even inside a selected app.</div>
+  </div><label class="sw"><input type="checkbox" id="ru"><span></span></label></div></div>
+  <div class="card"><div class="row"><div>
+    <h2 data-i18n="vpnc.title">Other VPNs go direct</h2>
+    <div class="mut small" data-i18n="vpnc.desc">Traffic of WireGuard, OpenVPN and similar clients to their own servers bypasses the tunnel.</div>
+  </div><label class="sw"><input type="checkbox" id="vpnc"><span></span></label></div></div>
+  <div class="card"><div class="row"><div>
+    <h2 data-i18n="dns.title">DNS leak protection</h2>
+    <div class="mut small" data-i18n="dns.desc">While the VPN is connected, DNS through the physical adapter (router, ISP) is blocked, so names are resolved only through the tunnel. Needs the service rights.</div>
+  </div><label class="sw"><input type="checkbox" id="dnsleak"><span></span></label></div></div>
+  <div class="card"><h2 data-i18n="exc.title">Exceptions by domain and address</h2>
+    <div class="mut small" data-i18n="exc.desc">One per line: a domain (<code>example.com</code>, subdomains included), <code>*.ru</code>, an IP or a subnet (<code>10.0.0.0/8</code>). They take priority over apps.</div>
+    <div style="margin-top:10px"><b data-i18n="exc.direct">Always direct</b><textarea id="dDirect" spellcheck="false" placeholder="203.0.113.7&#10;example.com"></textarea></div>
+    <div style="margin-top:10px"><b data-i18n="exc.tunnel">Always through the tunnel</b><textarea id="dTunnel" spellcheck="false" placeholder="example.org"></textarea></div>
+  </div>
+</section>
+
+<!-- LOG -->
+<section class="page" id="p-log">
+  <div class="card"><h2 data-i18n="log.title">Log</h2><pre class="sel" id="logbox">…</pre></div>
+</section>
+
+</main>
+<nav>
+  <button class="on" data-p="home" data-i18n="nav.home">Home</button>
+  <button data-p="servers" data-i18n="nav.servers">Servers</button>
+  <button data-p="rules" data-i18n="nav.rules">Rules</button>
+  <button data-p="log" data-i18n="nav.log">Log</button>
+</nav>
+
+<!-- all selected apps -->
+<div class="modal" id="appsModal"><div class="mbox">
+  <div class="mhead"><h2><span data-i18n="apps.title">Apps</span> · <span id="appsCount">0</span></h2><button class="btn sm" id="appsClose" data-i18n="btn.close">Close</button></div>
+  <input type="text" id="appFilter" data-i18n-ph="apps.filter" placeholder="Search the list">
+  <div class="mlist" id="appsFull"></div>
+  <div class="mfoot"><button class="btn dng sm" id="appsClear" data-i18n="apps.clear">Remove all</button><button class="btn pri sm" id="appsDone" data-i18n="btn.done">Done</button></div>
+</div></div>
+
+<!-- share a server link -->
+<div class="modal" id="shareModal"><div class="mbox">
+  <div class="mhead"><h2><span data-i18n="share.title">Share</span>: <span id="shareName"></span></h2><button class="btn sm" id="shareClose" data-i18n="btn.close">Close</button></div>
+  <div class="mut small" data-i18n="share.warn">The link contains the server password — send it only to people you trust.</div>
+  <textarea class="linkbox sel" id="shareLink" readonly style="margin-top:10px"></textarea>
+  <img class="qr" id="shareQr" alt="QR">
+  <div class="mfoot" style="margin-top:10px;flex-wrap:wrap">
+    <button class="btn pri" id="shareCopy" data-i18n="share.copy">Copy link</button>
+    <button class="btn" id="shareNative" style="display:none" data-i18n="share.send">Send…</button>
+    <button class="btn" id="qrBtn" data-i18n="qr.show">Show QR code</button>
+  </div>
+</div></div>
+
+<div id="toast"></div>
+<script>
+const T=new URLSearchParams(location.search).get('t');
+const H={'X-Token':T,'Content-Type':'application/json'};
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const lines=s=>s.split('\n').map(x=>x.trim()).filter(Boolean);
+const api=(p,o)=>fetch(p,Object.assign({headers:H},o));
+function toast(t){const e=$('toast');e.textContent=t;e.classList.add('on');setTimeout(()=>e.classList.remove('on'),2600)}
+
+/* ---- translations: English is the default, Russian is opt-in ---- */
+const L={
+ en:{
+  'nav.home':'Home','nav.servers':'Servers','nav.rules':'Rules','nav.log':'Log',
+  'power.connect':'Connect','power.disconnect':'Disconnect',
+  'state.disconnected':'Disconnected','state.connecting':'Connecting…','state.connected':'Connected','state.error':'Error',
+  'sub.idle':'Pick a server and press the button','sub.connecting':'Connecting to {0}',
+  'sub.connected':'{0} · {1} min {2} s','sub.nov6':' · no IPv6 on this network',
+  'err.admin':'No administrator rights — start the service.',
+  'svc.down':'Service unavailable','svc.downsub':'Start the Hy2Tun service or run the program as administrator',
+  'stat.down':'Download speed','stat.up':'Upload speed','stat.tunnel':'Through the tunnel','stat.direct':'Direct',
+  'speed.mb':'MB/s','speed.kb':'KB/s',
+  'auto.title':'Connect at startup','auto.desc':'The service brings the tunnel up after the computer starts.',
+  'recent.title':'Recent connections','tag.direct':'direct','tag.tunnel':'tunnel',
+  'srv.none':'No servers — add one on the Servers tab','srv.add':'Add a server',
+  'srv.hint':'Paste a link like <code>hy2://password@host:port?sni=…#Name</code>','srv.empty':'No servers yet.',
+  'srv.added':'Server added','btn.add':'Add','btn.share':'Share','btn.delete':'Delete','btn.close':'Close','btn.done':'Done',
+  'share.title':'Share','share.warn':'The link contains the server password — send it only to people you trust.',
+  'share.copy':'Copy link','share.send':'Send…','qr.show':'Show QR code','qr.hide':'Hide QR code',
+  'share.copied':'Link copied','share.copyfail':'Could not copy — select the text and copy it by hand',
+  'mode.title':'Mode','mode.all.t':'All traffic through the VPN','mode.all.d':'The app list is not used. The exceptions below still apply.',
+  'mode.sel.t':'Only selected apps','mode.sel.d':'Only the apps in the list go through the VPN (for example all of Chrome). Everything else goes direct.',
+  'mode.exc.t':'Everything except selected apps','mode.exc.d':'Apps in the list go direct, everything else goes through the VPN.',
+  'apps.title':'Apps','apps.hint':'Process name (<code>chrome.exe</code>) or a full path. You can pick from the running programs.',
+  'apps.kids':'Include child processes (helpers and launchers)','apps.empty':'The list is empty: no app is selected in this mode.',
+  'apps.more':'{0} more','apps.remove':'Remove','apps.filter':'Search the list','apps.clear':'Remove all',
+  'apps.none':'Nothing found','apps.listempty':'The list is empty','apps.confirm':'Remove all {0} apps from the list?',
+  'kill.title':'Kill switch','kill.desc':'While the VPN is off, the selected apps cannot reach the internet directly (only in the "Only selected apps" mode).',
+  'ru.title':'Proxy Russian resources','ru.desc':'Off: <b>.ru, .рф, Yandex, VK</b> and Russian IP addresses go direct, bypassing the server, even inside a selected app.',
+  'vpnc.title':'Other VPNs go direct','vpnc.desc':'Traffic of WireGuard, OpenVPN and similar clients to their own servers bypasses the tunnel.',
+  'dns.title':'DNS leak protection','dns.desc':'While the VPN is connected, DNS through the physical adapter (router, ISP) is blocked, so names are resolved only through the tunnel. Needs the service rights.',
+  'exc.title':'Exceptions by domain and address','exc.desc':'One per line: a domain (<code>example.com</code>, subdomains included), <code>*.ru</code>, an IP or a subnet (<code>10.0.0.0/8</code>). They take priority over apps.',
+  'exc.direct':'Always direct','exc.tunnel':'Always through the tunnel',
+  'log.title':'Log','log.empty':'empty','saved':'Saved'
+ },
+ ru:{
+  'nav.home':'Главная','nav.servers':'Серверы','nav.rules':'Правила','nav.log':'Журнал',
+  'power.connect':'Подключить','power.disconnect':'Отключить',
+  'state.disconnected':'Отключено','state.connecting':'Подключение…','state.connected':'Подключено','state.error':'Ошибка',
+  'sub.idle':'Выберите сервер и нажмите кнопку','sub.connecting':'Устанавливаем соединение с {0}',
+  'sub.connected':'{0} · {1} мин {2} с','sub.nov6':' · у сети нет IPv6',
+  'err.admin':'Нет прав администратора — запустите службу.',
+  'svc.down':'Служба недоступна','svc.downsub':'Запустите службу Hy2Tun или программу от администратора',
+  'stat.down':'Скорость вниз','stat.up':'Скорость вверх','stat.tunnel':'Через туннель','stat.direct':'Напрямую',
+  'speed.mb':'МБ/с','speed.kb':'КБ/с',
+  'auto.title':'Подключаться при запуске','auto.desc':'Служба сама поднимет туннель после включения компьютера.',
+  'recent.title':'Последние соединения','tag.direct':'напрямую','tag.tunnel':'туннель',
+  'srv.none':'Нет серверов — добавьте на вкладке «Серверы»','srv.add':'Добавить сервер',
+  'srv.hint':'Вставьте ссылку вида <code>hy2://пароль@хост:порт?sni=…#Название</code>','srv.empty':'Серверов пока нет.',
+  'srv.added':'Сервер добавлен','btn.add':'Добавить','btn.share':'Поделиться','btn.delete':'Удалить','btn.close':'Закрыть','btn.done':'Готово',
+  'share.title':'Поделиться','share.warn':'Ссылка содержит пароль от сервера — отправляйте только тем, кому доверяете.',
+  'share.copy':'Копировать ссылку','share.send':'Отправить…','qr.show':'Показать QR-код','qr.hide':'Скрыть QR-код',
+  'share.copied':'Ссылка скопирована','share.copyfail':'Не удалось скопировать — выделите текст и скопируйте вручную',
+  'mode.title':'Режим','mode.all.t':'Весь трафик через VPN','mode.all.d':'Список приложений не используется. Исключения ниже работают.',
+  'mode.sel.t':'Только выбранные приложения','mode.sel.d':'Через VPN идут приложения из списка (например, весь Chrome). Остальные — напрямую.',
+  'mode.exc.t':'Всё, кроме выбранных','mode.exc.d':'Приложения из списка идут напрямую, всё остальное — через VPN.',
+  'apps.title':'Приложения','apps.hint':'Имя процесса (<code>chrome.exe</code>) или полный путь. Можно выбрать из запущенных.',
+  'apps.kids':'Включая дочерние процессы (помощники и лаунчеры)','apps.empty':'Список пуст: в этом режиме ни одно приложение не выбрано.',
+  'apps.more':'ещё {0}','apps.remove':'Убрать','apps.filter':'Поиск по списку','apps.clear':'Удалить все',
+  'apps.none':'Ничего не найдено','apps.listempty':'Список пуст','apps.confirm':'Удалить все приложения из списка ({0})?',
+  'kill.title':'Kill switch','kill.desc':'Пока VPN отключён, выбранным приложениям закрыт выход в интернет напрямую (только режим «Только выбранные»).',
+  'ru.title':'Проксировать российские ресурсы','ru.desc':'Выключено: <b>.ru, .рф, Яндекс, VK</b> и адреса РФ идут напрямую, минуя сервер, даже внутри выбранного приложения.',
+  'vpnc.title':'Другие VPN напрямую','vpnc.desc':'Трафик WireGuard, OpenVPN и т.п. к своим серверам идёт мимо туннеля.',
+  'dns.title':'Защита от утечки DNS','dns.desc':'Пока VPN подключён, запросы DNS через физический адаптер (роутер, провайдер) блокируются — имена разрешаются только через туннель. Нужны права службы.',
+  'exc.title':'Исключения по доменам и адресам','exc.desc':'По одному в строке: домен (<code>example.com</code> — с поддоменами), <code>*.ru</code>, IP или подсеть (<code>10.0.0.0/8</code>). Приоритетнее приложений.',
+  'exc.direct':'Всегда напрямую','exc.tunnel':'Всегда через туннель',
+  'log.title':'Журнал','log.empty':'пусто','saved':'Сохранено'
+ }
+};
+let lang='en';
+const t=(k,...a)=>{let s=(L[lang]&&L[lang][k])||L.en[k]||k;a.forEach((v,i)=>s=s.replace('{'+i+'}',v));return s};
+const fmt=b=>b>1048576?(b/1048576).toFixed(1)+' '+t('speed.mb'):(b/1024).toFixed(0)+' '+t('speed.kb');
+function applyLang(){
+  document.documentElement.lang=lang;
+  document.querySelectorAll('[data-i18n]').forEach(e=>{
+    // dynamic elements are rendered by the renderers below
+    if(['power','stline','stsub'].includes(e.id))return;
+    e.innerHTML=t(e.dataset.i18n);
+  });
+  document.querySelectorAll('[data-i18n-ph]').forEach(e=>e.placeholder=t(e.dataset.i18nPh));
+  $('langBtn').textContent=lang==='ru'?'EN':'RU';
+  if(S)renderState(S);
+  if(cfg)renderRules();
+  const q=$('shareQr'); if(q)$('qrBtn').textContent=q.style.display==='block'?t('qr.hide'):t('qr.show');
+}
+$('langBtn').onclick=async()=>{
+  lang=lang==='ru'?'en':'ru';
+  applyLang();
+  api('/api/app',{method:'POST',body:JSON.stringify({lang})});
+};
+
+let page='home', S=null, cfg=null, saveTimer=null, selTouched=false;
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
+  page=b.dataset.p;
+  document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));
+  document.querySelectorAll('.page').forEach(x=>x.classList.toggle('on',x.id==='p-'+page));
+  if(page==='log')loadLog(); if(page==='rules')loadProcs();
+});
+
+/* ---- status ---- */
+function renderState(d){
+  S=d; const st=d.status;
+  if(d.lang&&d.lang!==lang&&!langPinned){lang=d.lang;langPinned=true;applyLang();return}
+  langPinned=true;
+  const pw=$('power'); pw.className='power '+(st.state==='disconnected'?'':st.state);
+  pw.textContent=st.state==='connected'?t('power.disconnect'):st.state==='connecting'?'…':t('power.connect');
+  $('stline').textContent=t('state.'+st.state);
+  const m=Math.floor(st.uptime/60);
+  $('stsub').textContent=st.state==='connected'?(t('sub.connected',st.server,m,st.uptime%60)+(st.phys_v6?'':t('sub.nov6'))):
+    st.state==='connecting'?t('sub.connecting',st.server):t('sub.idle');
+  $('sterr').textContent=st.state==='error'?st.error:(!st.admin&&st.state!=='connected'?t('err.admin'):'');
+  $('down').textContent=fmt(st.down_bps);$('up').textContent=fmt(st.up_bps);
+  $('vt').textContent=st.via_tunnel;$('vd').textContent=st.via_direct;
+  $('auto').checked=d.auto;
+  // server select
+  const sel=$('srvSel'), cur=sel.value;
+  sel.innerHTML=d.servers.map(s=>'<option value="'+s.id+'">'+esc(s.name)+' — '+esc(s.host)+'</option>').join('')||'<option value="">'+esc(t('srv.none'))+'</option>';
+  const act=d.servers.find(s=>s.active)||d.servers[0];
+  sel.value=(selTouched&&d.servers.some(s=>s.id===cur))?cur:(act?act.id:'');
+  sel.disabled=st.state==='connected'||st.state==='connecting';
+  $('recent').innerHTML=st.recent.slice().reverse().slice(0,25).map(r=>
+    '<tr><td class="mut">'+r.time+'</td><td><b>'+esc(r.proc)+'</b> → '+esc(r.name||r.dst)+'<div class="mut">'+esc(r.dst)+' · '+esc(r.why)+'</div></td><td><span class="tag t-'+r.via+'">'+t('tag.'+r.via)+'</span></td></tr>').join('');
+  if(page==='servers')renderServers();
+}
+let langPinned=false;
+$('srvSel').onchange=()=>{selTouched=true};
+$('power').onclick=async()=>{
+  if(!S)return; const st=S.status.state;
+  if(st==='connected'||st==='connecting'){ await api('/api/disconnect',{method:'POST'}); }
+  else{ const r=await api('/api/connect',{method:'POST',body:JSON.stringify({id:$('srvSel').value})});
+        if(!r.ok)toast(await r.text()); }
+  tick();
+};
+$('auto').onchange=e=>api('/api/app',{method:'POST',body:JSON.stringify({auto_connect:e.target.checked})});
+
+/* ---- servers ---- */
+function renderServers(){
+  $('srvList').innerHTML=S.servers.map(s=>'<div class="srv'+(s.active&&S.status.state==='connected'?' act':'')+'"><div class="n"><b>'+esc(s.name)+'</b><span class="mut small">'+esc(s.host)+':'+esc(s.port)+' · SNI '+esc(s.sni)+'</span></div>'+
+    '<div class="acts"><button class="btn" data-share="'+s.id+'">'+esc(t('btn.share'))+'</button><button class="btn dng" data-del="'+s.id+'">'+esc(t('btn.delete'))+'</button></div></div>').join('')||'<div class="mut" style="padding:8px">'+esc(t('srv.empty'))+'</div>';
+}
+$('srvList').onclick=async e=>{
+  const sh=e.target.dataset.share; if(sh){openShare(sh);return}
+  const id=e.target.dataset.del; if(!id)return;
+  const r=await api('/api/servers/delete',{method:'POST',body:JSON.stringify({id})});
+  if(!r.ok)toast(await r.text()); tick();
+};
+
+/* ---- share ---- */
+let shareLinkText='', shareTitle='';
+async function copyText(x){
+  try{await navigator.clipboard.writeText(x);return true}
+  catch(e){const ta=document.createElement('textarea');ta.value=x;document.body.appendChild(ta);ta.select();
+    let ok=false;try{ok=document.execCommand('copy')}catch(_){}ta.remove();return ok}
+}
+async function openShare(id){
+  const r=await api('/api/servers/share',{method:'POST',body:JSON.stringify({id})});
+  if(!r.ok){toast(await r.text());return}
+  const d=await r.json(); shareLinkText=d.link; shareTitle=d.name;
+  $('shareName').textContent=d.name; $('shareLink').value=d.link;
+  const q=$('shareQr'); q.style.display='none'; q.removeAttribute('src'); q.dataset.src='/api/servers/qr?id='+encodeURIComponent(id)+'&t='+encodeURIComponent(T);
+  $('qrBtn').textContent=t('qr.show');
+  $('shareNative').style.display=navigator.share?'':'none';
+  $('shareModal').classList.add('on');
+}
+$('shareCopy').onclick=async()=>{toast(await copyText(shareLinkText)?t('share.copied'):t('share.copyfail'))};
+$('shareNative').onclick=()=>{navigator.share({title:'Hy2Tun: '+shareTitle,text:shareLinkText}).catch(()=>{})};
+$('qrBtn').onclick=()=>{
+  const q=$('shareQr'), show=q.style.display==='none';
+  if(show&&!q.getAttribute('src'))q.src=q.dataset.src+'&_='+Date.now();
+  q.style.display=show?'block':'none';$('qrBtn').textContent=show?t('qr.hide'):t('qr.show');
+};
+$('shareClose').onclick=()=>{$('shareModal').classList.remove('on');$('shareLink').value='';shareLinkText=''};
+$('shareModal').onclick=e=>{if(e.target.id==='shareModal')$('shareClose').onclick()};
+$('linkAdd').onclick=async()=>{
+  const link=$('linkIn').value.trim(); if(!link)return;
+  const r=await api('/api/servers',{method:'POST',body:JSON.stringify({link})});
+  if(r.ok){$('linkIn').value='';toast(t('srv.added'));tick()} else toast(await r.text());
+};
+
+/* ---- rules ---- */
+/* a few chips on the page, the whole list in a window */
+const MAXCHIPS=6;
+function renderChips(){
+  const a=cfg.apps, show=a.slice(0,MAXCHIPS);
+  let h=show.map((x,i)=>'<span class="chip" title="'+esc(x)+'">'+esc(x)+'<button data-i="'+i+'" title="'+esc(t('apps.remove'))+'">×</button></span>').join('');
+  if(a.length>MAXCHIPS)h+='<button class="chip more" id="moreApps">'+esc(t('apps.more',a.length-MAXCHIPS))+'</button>';
+  $('chips').innerHTML=h;
+  if($('appsModal').classList.contains('on'))renderAppsModal();
+}
+function renderAppsModal(){
+  const q=$('appFilter').value.trim().toLowerCase();
+  $('appsCount').textContent=cfg.apps.length;
+  const rows=cfg.apps.map((a,i)=>[a,i]).filter(([a])=>!q||a.toLowerCase().includes(q));
+  $('appsFull').innerHTML=rows.map(([a,i])=>'<div class="mitem"><span title="'+esc(a)+'">'+esc(a)+'</span><button class="btn dng sm" data-di="'+i+'">'+esc(t('btn.delete'))+'</button></div>').join('')
+    ||'<div class="mut small" style="padding:10px">'+esc(cfg.apps.length?t('apps.none'):t('apps.listempty'))+'</div>';
+}
+function openAppsModal(){$('appFilter').value='';$('appsModal').classList.add('on');renderAppsModal()}
+function closeAppsModal(){$('appsModal').classList.remove('on')}
+$('appsClose').onclick=closeAppsModal;$('appsDone').onclick=closeAppsModal;
+$('appsModal').onclick=e=>{if(e.target.id==='appsModal')closeAppsModal()};
+$('appFilter').oninput=renderAppsModal;
+$('appsFull').onclick=e=>{
+  const i=e.target.dataset.di; if(i===undefined)return;
+  cfg.apps.splice(+i,1);renderRules();saveCfg();
+};
+$('appsClear').onclick=()=>{
+  if(!cfg.apps.length)return;
+  if(!confirm(t('apps.confirm',cfg.apps.length)))return;
+  cfg.apps=[];renderRules();saveCfg();
+};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeAppsModal();$('shareClose').onclick()}});
+
+function renderRules(){
+  if(!cfg)return;
+  document.querySelectorAll('input[name=mode]').forEach(r=>{r.checked=r.value===cfg.mode;r.closest('.mode').classList.toggle('sel',r.checked)});
+  $('appsCard').style.opacity=cfg.mode==='all'?.5:1;
+  renderChips();
+  $('emptyApps').style.display=(cfg.mode!=='all'&&cfg.apps.length===0)?'block':'none';
+  $('kids').checked=cfg.include_children;$('ru').checked=cfg.proxy_ru;$('vpnc').checked=cfg.vpn_clients_direct;$('kill').checked=cfg.kill_switch;$('dnsleak').checked=cfg.block_dns_leak;
+}
+function saveCfg(){
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(async()=>{
+    cfg.direct_domains=lines($('dDirect').value);cfg.tunnel_domains=lines($('dTunnel').value);
+    const r=await api('/api/config',{method:'POST',body:JSON.stringify(cfg)});
+    toast(r.ok?t('saved'):await r.text());
+  },400);
+}
+function addApp(v){v=v.trim();if(!v||cfg.apps.some(a=>a.toLowerCase()===v.toLowerCase()))return;cfg.apps.push(v);renderRules();saveCfg()}
+async function loadCfg(){
+  cfg=await (await api('/api/config')).json(); cfg.apps=cfg.apps||[];
+  $('dDirect').value=(cfg.direct_domains||[]).join('\n');$('dTunnel').value=(cfg.tunnel_domains||[]).join('\n');
+  renderRules();
+}
+async function loadProcs(){
+  try{const l=await (await api('/api/processes')).json();
+    $('procs').innerHTML=l.map(p=>'<option value="'+esc(p.name)+'">'+esc(p.path||'')+'</option>').join('');}catch(e){}
+}
+document.querySelectorAll('input[name=mode]').forEach(r=>r.onchange=()=>{cfg.mode=r.value;renderRules();saveCfg()});
+$('chips').onclick=e=>{
+  if(e.target.id==='moreApps'){openAppsModal();return}
+  const i=e.target.dataset.i;if(i!==undefined){cfg.apps.splice(+i,1);renderRules();saveCfg()}
+};
+$('appAdd').onclick=()=>{addApp($('appIn').value);$('appIn').value=''};
+$('appIn').onkeydown=e=>{if(e.key==='Enter'){addApp($('appIn').value);$('appIn').value=''}};
+$('kids').onchange=e=>{cfg.include_children=e.target.checked;saveCfg()};
+$('ru').onchange=e=>{cfg.proxy_ru=e.target.checked;saveCfg()};
+$('vpnc').onchange=e=>{cfg.vpn_clients_direct=e.target.checked;saveCfg()};
+$('kill').onchange=e=>{cfg.kill_switch=e.target.checked;saveCfg()};
+$('dnsleak').onchange=e=>{cfg.block_dns_leak=e.target.checked;saveCfg()};
+$('dDirect').oninput=saveCfg;$('dTunnel').oninput=saveCfg;
+
+/* ---- log ---- */
+async function loadLog(){
+  try{const l=await (await api('/api/log')).json();$('logbox').textContent=l.join('\n')||t('log.empty');}catch(e){}
+}
+
+async function tick(){
+  try{renderState(await (await api('/api/state')).json()); if(page==='log')loadLog();}
+  catch(e){$('stline').textContent=t('svc.down');$('stsub').textContent=t('svc.downsub')}
+}
+applyLang();
+loadCfg().then(()=>{tick();setInterval(tick,1000)});
+</script></body></html>

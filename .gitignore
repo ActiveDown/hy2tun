@@ -1,0 +1,26 @@
+# secrets and local state - never commit
+hy2.url
+*.url
+servers.json
+settings.json
+apppaths.json
+token
+*.log
+*.log.old
+
+# build output
+*.exe
+*.dll
+*.test
+/release/
+/stand*/
+
+# installer payload is produced by the build, only the placeholder is tracked
+/cmd/setup/payload/*
+!/cmd/setup/payload/.keep
+
+# editor / OS
+.vs/
+.vscode/
+.idea/
+Thumbs.db
