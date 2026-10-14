@@ -2,10 +2,12 @@ package setupcore
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 )
 
 func TestPageHasNoLeftoverPlaceholders(t *testing.T) {
@@ -81,5 +83,57 @@ func TestUninstallSettingsStepIsOptional(t *testing.T) {
 	}
 	if !last.when(&installer{deleteData: true}) {
 		t.Fatal("settings must be deleted when the user asked for it")
+	}
+}
+
+func TestRelocatedCopyDoesNotInheritInstallDir(t *testing.T) {
+	c := relocationCommand(`C:\Temp\Hy2Tun-Uninstall-1.exe`)
+	if c.Dir == "" || c.Dir != os.TempDir() {
+		t.Fatalf("the temporary uninstaller must start in %q, not inherit the cwd (got %q)", os.TempDir(), c.Dir)
+	}
+}
+
+func TestIsEmptyDir(t *testing.T) {
+	d := t.TempDir()
+	if !isEmptyDir(d) {
+		t.Fatal("a fresh directory is empty")
+	}
+	os.WriteFile(filepath.Join(d, "x"), []byte("1"), 0o644)
+	if isEmptyDir(d) {
+		t.Fatal("a directory with a file is not empty")
+	}
+	if isEmptyDir(filepath.Join(d, "missing")) {
+		t.Fatal("a missing directory is not an empty directory")
+	}
+}
+
+// Reproduces the field failure: a folder that is the current directory of a
+// running process cannot be removed, and a child inherits that directory.
+func TestFolderInUseAsCwdCannotBeRemoved(t *testing.T) {
+	holder := t.TempDir()
+	child := exec.Command("ping", "-n", "4", "127.0.0.1")
+	child.Dir = holder // what the buggy relocation did implicitly
+	if err := child.Start(); err != nil {
+		t.Skip("ping not available")
+	}
+	defer child.Process.Kill()
+	time.Sleep(300 * time.Millisecond)
+	if err := os.RemoveAll(holder); err == nil {
+		if _, serr := os.Stat(holder); serr != nil {
+			t.Skip("this Windows version allowed deleting a cwd")
+		}
+	}
+	// the fix: the same kind of child, started through relocationCommand's
+	// neutral directory, does not pin the folder
+	other := t.TempDir()
+	c2 := relocationCommand("ping")
+	c2.Args = []string{"ping", "-n", "4", "127.0.0.1"}
+	if err := c2.Start(); err != nil {
+		t.Skip("ping not available")
+	}
+	defer c2.Process.Kill()
+	time.Sleep(300 * time.Millisecond)
+	if err := os.RemoveAll(other); err != nil {
+		t.Fatalf("a child started in the neutral directory must not pin %s: %v", other, err)
 	}
 }

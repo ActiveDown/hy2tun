@@ -285,6 +285,12 @@ func cmdGUI(args []string) {
 		}
 	}
 	dir, _ := resolveDataDir(c.data)
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	// never keep the installation folder as the working directory: it would
+	// block the uninstaller from removing it
+	os.Chdir(os.TempDir())
 
 	// single instance
 	// HY2TUN_GUI_INSTANCE lets a second, independent window run for tests

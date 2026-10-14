@@ -190,7 +190,7 @@ var installSteps = []step{
 	}},
 	{"Создаём ярлык в меню «Пуск»…", "Creating the Start menu shortcut…", nil, func(in *installer) error {
 		ps := fmt.Sprintf(`$s=(New-Object -ComObject WScript.Shell).CreateShortcut('%s');$s.TargetPath='%s';$s.Arguments='gui';$s.WorkingDirectory='%s';$s.IconLocation='%s,0';$s.Description='Hy2Tun';$s.Save()`,
-			in.lnk, in.target, in.dir, in.target)
+			in.lnk, in.target, workDir(), in.target)
 		run("powershell", "-NoProfile", "-NonInteractive", "-Command", ps)
 		return nil // a missing shortcut is not fatal
 	}},
@@ -220,7 +220,32 @@ func removeAllRetry(path string) error {
 		}
 		time.Sleep(500 * time.Millisecond) // antivirus / handles still closing
 	}
+	// Everything inside is gone but the folder itself is still held by some
+	// process (for example an Explorer window): finish it at the next restart
+	// instead of failing a removal that has in fact succeeded.
+	if isEmptyDir(path) {
+		if p, perr := windows.UTF16PtrFromString(path); perr == nil {
+			const moveFileDelayUntilReboot = 0x4
+			if windows.MoveFileEx(p, nil, moveFileDelayUntilReboot) == nil {
+				return nil
+			}
+		}
+	}
 	return err
+}
+
+// workDir is the working directory for the shortcut: never the install folder,
+// so a running application cannot pin it and block the uninstaller.
+func workDir() string {
+	if sr := os.Getenv("SystemRoot"); sr != "" {
+		return sr
+	}
+	return `C:\Windows`
+}
+
+func isEmptyDir(path string) bool {
+	es, err := os.ReadDir(path)
+	return err == nil && len(es) == 0
 }
 
 var uninstallSteps = []step{
@@ -296,7 +321,18 @@ func relocateForUninstall(in *installer) bool {
 	if err := copyFile(self, tmp); err != nil {
 		return false
 	}
-	return exec.Command(tmp).Start() == nil
+	return relocationCommand(tmp).Start() == nil
+}
+
+// relocationCommand starts the temporary copy in a neutral working directory.
+// A process cannot be started with the folder it must delete as its current
+// directory: Windows refuses to remove a folder that is some process' cwd, and
+// a child inherits the parent's cwd (the user often launches Uninstall.exe from
+// that very folder).
+func relocationCommand(tmp string) *exec.Cmd {
+	c := exec.Command(tmp)
+	c.Dir = os.TempDir()
+	return c
 }
 
 // removeSelfLater deletes the temporary uninstaller copy after it has exited.
@@ -314,6 +350,9 @@ func removeSelfLater() {
 // returns when the user closes the window.
 func Run(o Options) {
 	uninstall := o.Mode == Uninstall
+	if uninstall {
+		os.Chdir(os.TempDir())
+	}
 	elevateIfNeeded()
 	in := newInstaller(o)
 	if uninstall && relocateForUninstall(in) {
