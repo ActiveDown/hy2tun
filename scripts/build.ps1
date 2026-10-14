@@ -69,8 +69,15 @@ if ((Get-Subsystem $gui) -ne 2) { throw "$gui is not a GUI-subsystem executable"
 if ((Get-Subsystem $con) -ne 3) { throw "$con is not a console executable" }
 & $sign @($gui, $con)
 
+# the uninstaller is a program of its own (never a mode of the installer)
+$un = Join-Path $out 'Uninstall.exe'
+go build -trimpath -ldflags "$ld -H=windowsgui" -o $un .\cmd\uninstall
+if ((Get-Subsystem $un) -ne 2) { throw "$un is not a GUI-subsystem executable" }
+& $sign @($un)
+
 $payload = Join-Path $root 'cmd\setup\payload'
 Copy-Item $gui (Join-Path $payload 'Hy2Tun.exe') -Force
+Copy-Item $un (Join-Path $payload 'Uninstall.exe') -Force
 Copy-Item $WintunDll (Join-Path $payload 'wintun.dll') -Force
 $setup = Join-Path $out "Hy2Tun-$Version-setup-windows-amd64.exe"
 go build -trimpath -ldflags "$ld -H=windowsgui" -o $setup .\cmd\setup

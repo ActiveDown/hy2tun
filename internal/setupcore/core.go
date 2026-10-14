@@ -1,0 +1,526 @@
+// Package setupcore is the shared engine of the two Windows programs that
+// manage an installation: Hy2Tun-Setup.exe (cmd/setup) and Uninstall.exe
+// (cmd/uninstall). They are separate executables on purpose: what a program
+// does is decided by *which program it is*, never by its file name or its
+// command-line arguments, so renaming or double-clicking a file cannot switch
+// an installer into an uninstaller or the other way round.
+//
+// Both show the same window (progress, result, language switch). The
+// application is started only after the user presses OK.
+package setupcore
+
+import (
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/ActiveDown/hy2tun/internal/logo"
+	"github.com/ActiveDown/hy2tun/internal/winui"
+	"github.com/jchv/go-webview2"
+	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
+)
+
+// Mode is what the running program does.
+type Mode int
+
+const (
+	Install Mode = iota
+	Uninstall
+)
+
+// Options configures Run.
+type Options struct {
+	Mode    Mode
+	Version string
+	// Payload holds the files to install below "payload/" (Install only).
+	Payload fs.FS
+}
+
+const (
+	appName      = "Hy2Tun"
+	exeName      = "Hy2Tun.exe"
+	uninstallExe = "Uninstall.exe"
+	uninstallKey = `SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Hy2Tun`
+)
+
+// setupLang is English unless the user already chose Russian in the app
+// (stored in %ProgramData%\Hy2Tun\servers.json by an earlier installation).
+var setupLang = func() string {
+	b, err := os.ReadFile(filepath.Join(os.Getenv("ProgramData"), "Hy2Tun", "servers.json"))
+	if err == nil && strings.Contains(string(b), `"lang": "ru"`) {
+		return "ru"
+	}
+	return "en"
+}()
+
+func tr(ru, en string) string {
+	if setupLang == "ru" {
+		return ru
+	}
+	return en
+}
+
+func msgBox(text string, icon uint32) {
+	t, _ := windows.UTF16PtrFromString(appName + tr(" — установка", " — setup"))
+	m, _ := windows.UTF16PtrFromString(text)
+	windows.MessageBox(0, m, t, windows.MB_OK|icon)
+}
+
+func run(name string, args ...string) error {
+	c := exec.Command(name, args...)
+	c.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	out, err := c.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s %s: %v: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// elevateIfNeeded is a safety net: the manifest of both programs already asks
+// Windows for administrator rights.
+func elevateIfNeeded() {
+	if windows.GetCurrentProcessToken().IsElevated() {
+		return
+	}
+	exe, _ := os.Executable()
+	verb, _ := windows.UTF16PtrFromString("runas")
+	file, _ := windows.UTF16PtrFromString(exe)
+	args, _ := windows.UTF16PtrFromString(strings.Join(os.Args[1:], " "))
+	if err := windows.ShellExecute(0, verb, file, args, nil, windows.SW_NORMAL); err != nil {
+		msgBox(fmt.Sprintf(tr("Нужны права администратора: %v", "Administrator rights are required: %v"), err), windows.MB_ICONERROR)
+	}
+	os.Exit(0)
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
+}
+
+// ---- the work ----
+
+type step struct {
+	ru, en string
+	when   func(*installer) bool // nil = always
+	do     func(*installer) error
+}
+
+type installer struct {
+	dir, target, lnk string
+	version          string
+	payload          fs.FS
+	deleteData       bool // uninstall: also remove %ProgramData%\Hy2Tun
+}
+
+func newInstaller(o Options) *installer {
+	pf := os.Getenv("ProgramFiles")
+	if pf == "" {
+		pf = `C:\Program Files`
+	}
+	dir := filepath.Join(pf, appName)
+	return &installer{
+		dir:     dir,
+		target:  filepath.Join(dir, exeName),
+		lnk:     filepath.Join(os.Getenv("ProgramData"), `Microsoft\Windows\Start Menu\Programs`, appName+".lnk"),
+		version: o.Version,
+		payload: o.Payload,
+	}
+}
+
+var installSteps = []step{
+	{"Останавливаем предыдущую версию…", "Stopping the previous version…", nil, func(in *installer) error {
+		if _, err := os.Stat(in.target); err == nil {
+			run(in.target, "uninstall") // upgrade: removes the old service
+		}
+		run("taskkill", "/f", "/im", exeName)
+		time.Sleep(700 * time.Millisecond)
+		return nil
+	}},
+	{"Копируем файлы…", "Copying files…", nil, func(in *installer) error {
+		if in.payload == nil {
+			return fmt.Errorf("%s", tr("в установщике нет файлов программы", "the installer contains no program files"))
+		}
+		if err := os.MkdirAll(in.dir, 0o755); err != nil {
+			return err
+		}
+		count := 0
+		err := fs.WalkDir(in.payload, "payload", func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || d.Name() == ".keep" {
+				return err
+			}
+			b, err := fs.ReadFile(in.payload, p)
+			if err != nil {
+				return err
+			}
+			count++
+			return os.WriteFile(filepath.Join(in.dir, d.Name()), b, 0o755)
+		})
+		if err != nil {
+			return err
+		}
+		if count == 0 {
+			return fmt.Errorf("%s", tr("в установщике нет файлов программы", "the installer contains no program files"))
+		}
+		return nil
+	}},
+	{"Устанавливаем и запускаем службу…", "Installing and starting the service…", nil, func(in *installer) error {
+		return run(in.target, "install", "quiet") // service (delayed automatic start) + tray autostart
+	}},
+	{"Создаём ярлык в меню «Пуск»…", "Creating the Start menu shortcut…", nil, func(in *installer) error {
+		ps := fmt.Sprintf(`$s=(New-Object -ComObject WScript.Shell).CreateShortcut('%s');$s.TargetPath='%s';$s.Arguments='gui';$s.WorkingDirectory='%s';$s.IconLocation='%s,0';$s.Description='Hy2Tun';$s.Save()`,
+			in.lnk, in.target, in.dir, in.target)
+		run("powershell", "-NoProfile", "-NonInteractive", "-Command", ps)
+		return nil // a missing shortcut is not fatal
+	}},
+	{"Регистрируем программу в системе…", "Registering the program…", nil, func(in *installer) error {
+		k, _, err := registry.CreateKey(registry.LOCAL_MACHINE, uninstallKey, registry.SET_VALUE)
+		if err != nil {
+			return nil
+		}
+		defer k.Close()
+		k.SetStringValue("DisplayName", appName)
+		k.SetStringValue("DisplayVersion", in.version)
+		k.SetStringValue("Publisher", appName)
+		k.SetStringValue("InstallLocation", in.dir)
+		k.SetStringValue("DisplayIcon", in.target)
+		k.SetStringValue("UninstallString", `"`+filepath.Join(in.dir, uninstallExe)+`"`)
+		k.SetDWordValue("NoModify", 1)
+		k.SetDWordValue("NoRepair", 1)
+		return nil
+	}},
+}
+
+func removeAllRetry(path string) error {
+	var err error
+	for i := 0; i < 8; i++ {
+		if err = os.RemoveAll(path); err == nil {
+			return nil
+		}
+		time.Sleep(500 * time.Millisecond) // antivirus / handles still closing
+	}
+	return err
+}
+
+var uninstallSteps = []step{
+	{"Останавливаем службу…", "Stopping the service…", nil, func(in *installer) error {
+		if _, err := os.Stat(in.target); err == nil {
+			run(in.target, "uninstall") // removes the service and the tray autostart entry
+		}
+		return nil
+	}},
+	{"Закрываем приложение…", "Closing the application…", nil, func(in *installer) error {
+		run("taskkill", "/f", "/im", exeName)
+		time.Sleep(700 * time.Millisecond)
+		return nil
+	}},
+	{"Удаляем файлы…", "Removing files…", nil, func(in *installer) error {
+		return removeAllRetry(in.dir)
+	}},
+	{"Удаляем ярлык и записи…", "Removing the shortcut and registry entries…", nil, func(in *installer) error {
+		os.Remove(in.lnk)
+		registry.DeleteKey(registry.LOCAL_MACHINE, uninstallKey)
+		if la := os.Getenv("LOCALAPPDATA"); la != "" {
+			os.RemoveAll(filepath.Join(la, "Hy2Tun")) // WebView2 cache of the current user
+		}
+		return nil
+	}},
+	{"Удаляем настройки и серверы…", "Removing settings and servers…", func(in *installer) bool { return in.deleteData }, func(in *installer) error {
+		return removeAllRetry(filepath.Join(os.Getenv("ProgramData"), "Hy2Tun"))
+	}},
+}
+
+// launchApp starts the window as the normal (non-elevated) user through the
+// shortcut; the installer itself runs elevated.
+func (in *installer) launchApp() {
+	if _, err := os.Stat(in.lnk); err == nil {
+		exec.Command("explorer.exe", in.lnk).Start()
+		return
+	}
+	exec.Command(in.target, "gui").Start()
+}
+
+// ---- the window ----
+
+type stepText struct {
+	RU string `json:"ru"`
+	EN string `json:"en"`
+}
+
+// page renders the HTML for a list of steps (both languages are embedded).
+func page(list []step) string {
+	var st []stepText
+	for _, s := range list {
+		st = append(st, stepText{s.ru, s.en})
+	}
+	b, _ := json.Marshal(st)
+	html := strings.Replace(setupHTML, "/*STEPS*/[]", string(b), 1)
+	return strings.ReplaceAll(html, "/*LOGO*/", base64.StdEncoding.EncodeToString(logo.PNG(logo.App(176))))
+}
+
+// runsFromInstallDir reports whether the executable lives in the folder that
+// the uninstaller is about to delete. Such a copy has to move to %TEMP% first.
+func runsFromInstallDir(self, dir string) bool {
+	return strings.EqualFold(filepath.Clean(filepath.Dir(self)), filepath.Clean(dir))
+}
+
+// relocateForUninstall copies this executable to %TEMP% and starts it from
+// there, because an executable cannot delete the folder it is running from.
+func relocateForUninstall(in *installer) bool {
+	self, err := os.Executable()
+	if err != nil || !runsFromInstallDir(self, in.dir) {
+		return false
+	}
+	tmp := filepath.Join(os.TempDir(), "Hy2Tun-Uninstall-"+strconv.Itoa(os.Getpid())+".exe")
+	if err := copyFile(self, tmp); err != nil {
+		return false
+	}
+	return exec.Command(tmp).Start() == nil
+}
+
+// removeSelfLater deletes the temporary uninstaller copy after it has exited.
+func removeSelfLater() {
+	self, err := os.Executable()
+	if err != nil || !strings.HasPrefix(strings.ToLower(filepath.Base(self)), "hy2tun-uninstall-") {
+		return
+	}
+	c := exec.Command("cmd", "/c", fmt.Sprintf(`ping -n 3 127.0.0.1 >nul & del /f /q "%s"`, self))
+	c.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	c.Start()
+}
+
+// Run executes the installer or the uninstaller (depending on o.Mode) and
+// returns when the user closes the window.
+func Run(o Options) {
+	uninstall := o.Mode == Uninstall
+	elevateIfNeeded()
+	in := newInstaller(o)
+	if uninstall && relocateForUninstall(in) {
+		return
+	}
+	list := installSteps
+	if uninstall {
+		list = uninstallSteps
+	}
+
+	data := filepath.Join(os.TempDir(), "Hy2TunSetup-webview2")
+	os.MkdirAll(data, 0o755)
+	title := appName + tr(" — установка", " — Setup")
+	if uninstall {
+		title = appName + tr(" — удаление", " — Uninstall")
+	}
+	w := webview2.NewWithOptions(webview2.WebViewOptions{
+		DataPath: data,
+		WindowOptions: webview2.WindowOptions{
+			Title: title, Width: 520, Height: 430, Center: true, IconId: 2,
+		},
+	})
+	if w == nil {
+		in.runHeadless(uninstall, list) // no WebView2 runtime: plain message boxes
+		return
+	}
+	hwnd := w.Window()
+	winui.ApplyTheme(hwnd, winui.SystemTheme())
+	winui.MakeFixedSize(hwnd)
+	w.SetSize(520, 430, webview2.HintFixed)
+
+	launch, finished := false, false
+	closeWindow := func() { w.Dispatch(func() { w.Terminate() }) }
+
+	// runSteps executes the list on a worker goroutine and reports to the page.
+	runSteps := func() {
+		winui.SetCloseEnabled(hwnd, false) // no X while files are being changed
+		for i, s := range list {
+			if s.when != nil && !s.when(in) {
+				continue
+			}
+			i := i
+			w.Dispatch(func() { w.Eval(fmt.Sprintf("progress(%d)", i)) })
+			if err := s.do(in); err != nil {
+				msg, _ := json.Marshal(err.Error())
+				w.Dispatch(func() {
+					winui.SetCloseEnabled(hwnd, true)
+					w.Eval("fail(" + string(msg) + ")")
+				})
+				return
+			}
+		}
+		finished = true
+		w.Dispatch(func() {
+			winui.SetCloseEnabled(hwnd, true)
+			w.Eval(fmt.Sprintf("done(%v)", in.deleteData))
+		})
+	}
+
+	w.Bind("setupFinish", func(l bool) { launch = l; closeWindow() })
+	w.Bind("setupCancel", func() { closeWindow() })
+	w.Bind("uninstallStart", func(deleteData bool) {
+		in.deleteData = deleteData
+		go runSteps()
+	})
+	mode := "install"
+	if uninstall {
+		mode = "uninstall"
+	}
+	w.Init(fmt.Sprintf("window.__lang=%q;window.__mode=%q;", setupLang, mode))
+	w.SetHtml(page(list))
+
+	if !uninstall { // the uninstaller waits for the user's confirmation first
+		go func() {
+			time.Sleep(400 * time.Millisecond) // let the page load
+			runSteps()
+		}()
+	}
+
+	w.Run()
+	w.Destroy()
+	if uninstall {
+		removeSelfLater()
+		return
+	}
+	// only now, after the user pressed OK, the application starts
+	if finished && launch {
+		in.launchApp()
+	}
+	if !finished {
+		os.Exit(1)
+	}
+}
+
+// runHeadless is the fallback without WebView2.
+func (in *installer) runHeadless(uninstall bool, list []step) {
+	for _, s := range list {
+		if s.when != nil && !s.when(in) {
+			continue
+		}
+		if err := s.do(in); err != nil {
+			msgBox(tr("Операция не удалась:", "The operation failed:")+"\n\n"+err.Error(), windows.MB_ICONERROR)
+			os.Exit(1)
+		}
+	}
+	if uninstall {
+		msgBox(tr("Hy2Tun удалён.", "Hy2Tun has been removed."), windows.MB_ICONINFORMATION)
+		removeSelfLater()
+		return
+	}
+	msgBox(tr("Hy2Tun установлен.\n\nСлужба работает и стартует вместе с Windows. Нажмите OK — откроется окно приложения.",
+		"Hy2Tun is installed.\n\nThe service is running and starts with Windows. Press OK to open the application."), windows.MB_ICONINFORMATION)
+	in.launchApp()
+}
+
+const setupHTML = `<!doctype html><html><head><meta charset="utf-8"><style>
+:root{--bg:#0e1015;--card:#171a21;--line:#272c38;--tx:#eceff5;--mut:#8b93a5;--ok:#3ddc84;--acc:#7a5cff;--bad:#ef5350}
+@media (prefers-color-scheme: light){:root{--bg:#f2f4f8;--card:#fff;--line:#dde2ec;--tx:#171a21;--mut:#667085;--ok:#12a057;--acc:#5b3df5;--bad:#c92a2a}}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--tx);font:15px/1.45 "Segoe UI",system-ui,sans-serif;display:flex;flex-direction:column;user-select:none;overflow:hidden}
+.lang{position:absolute;top:10px;right:14px;background:transparent;border:1px solid var(--line);color:var(--mut);padding:3px 10px;border-radius:999px;font:600 12px "Segoe UI";cursor:pointer}
+.lang:hover{color:var(--tx)}
+.wrap{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px 40px;text-align:center}
+.view{display:none;flex-direction:column;align-items:center;width:100%}
+.view.on{display:flex}
+.logo{width:88px;height:88px;margin-bottom:20px;filter:drop-shadow(0 12px 26px rgba(122,92,255,.38))}
+h1{font-size:22px;margin:0 0 6px}
+.sub{color:var(--mut);font-size:14px;min-height:42px;max-width:420px}
+.bar{width:100%;max-width:380px;height:8px;background:var(--line);border-radius:8px;margin:22px 0 10px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#7a5cff,#00c2ff);border-radius:8px;transition:width .35s}
+.step{color:var(--mut);font-size:13px;min-height:20px}
+.chk{display:flex;gap:8px;align-items:center;margin:16px 0 4px;color:var(--tx);font-size:14px;cursor:pointer}
+.row{display:flex;gap:10px;margin-top:14px}
+.btn{min-width:130px;background:var(--acc);color:#fff;border:0;border-radius:12px;padding:11px 24px;font:600 15px "Segoe UI";cursor:pointer}
+.btn:hover{filter:brightness(1.08)}
+.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--tx)}
+.btn.danger{background:var(--bad)}
+.err{color:var(--bad);font-size:13px;margin-top:10px;word-break:break-word;max-height:90px;overflow:auto;user-select:text}
+.tick{width:64px;height:64px;border-radius:50%;background:var(--ok);display:grid;place-items:center;margin-bottom:18px;color:#06210f;font-size:34px;font-weight:700}
+.tick.bad{background:var(--bad);color:#fff}
+</style></head><body>
+<button class="lang" id="lang"></button>
+<div class="wrap">
+  <div class="view" id="vconf">
+    <img class="logo" alt="" src="data:image/png;base64,/*LOGO*/">
+    <h1 id="c1"></h1>
+    <div class="sub" id="c2"></div>
+    <label class="chk"><input type="checkbox" id="del"><span id="c3"></span></label>
+    <div class="row"><button class="btn ghost" id="cancel"></button><button class="btn danger" id="go"></button></div>
+  </div>
+  <div class="view" id="vbusy">
+    <img class="logo" alt="" src="data:image/png;base64,/*LOGO*/">
+    <h1 id="t1"></h1>
+    <div class="sub" id="s1"></div>
+    <div class="bar"><i id="bar"></i></div>
+    <div class="step" id="step"></div>
+  </div>
+  <div class="view" id="vfinal">
+    <div class="tick" id="tick">✓</div>
+    <h1 id="t2"></h1>
+    <div class="sub" id="s2"></div>
+    <div class="err" id="err"></div>
+    <label class="chk" id="chkrow"><input type="checkbox" id="chk" checked><span id="chkl"></span></label>
+    <button class="btn" id="ok">OK</button>
+  </div>
+</div>
+<script>
+const STEPS=/*STEPS*/[];
+const MODE=window.__mode||'install';
+const D={
+ en:{t1:'Installing Hy2Tun',s1:'Please wait. This takes a few seconds.',
+     u1:'Uninstalling Hy2Tun',us1:'Please wait.',
+     t2:'Hy2Tun is installed',s2:'The service is running and starts together with Windows. Press OK to open the application.',chk:'Open Hy2Tun now',
+     ut2:'Hy2Tun has been removed',us2k:'Your settings and saved servers were kept in C:\\ProgramData\\Hy2Tun.',us2d:'The program and all of its data were removed from this computer.',
+     c1:'Uninstall Hy2Tun?',c2:'The service, the program files and the shortcuts will be removed from this computer.',c3:'Also delete my settings and saved servers',go:'Uninstall',cancel:'Cancel',
+     bad:'The operation failed',badS:'You can run it again. Nothing else needs to be undone.',ok:'OK',close:'Close'},
+ ru:{t1:'Установка Hy2Tun',s1:'Подождите несколько секунд.',
+     u1:'Удаление Hy2Tun',us1:'Подождите.',
+     t2:'Hy2Tun установлен',s2:'Служба работает и стартует вместе с Windows. Нажмите OK — откроется приложение.',chk:'Открыть Hy2Tun сейчас',
+     ut2:'Hy2Tun удалён',us2k:'Настройки и сохранённые серверы оставлены в C:\\ProgramData\\Hy2Tun.',us2d:'Программа и все её данные удалены с этого компьютера.',
+     c1:'Удалить Hy2Tun?',c2:'Служба, файлы программы и ярлыки будут удалены с этого компьютера.',c3:'Также удалить мои настройки и сохранённые серверы',go:'Удалить',cancel:'Отмена',
+     bad:'Операция не удалась',badS:'Можно запустить её ещё раз. Больше ничего откатывать не нужно.',ok:'OK',close:'Закрыть'}
+};
+let lang=window.__lang||'en', cur=0, state=MODE==='uninstall'?'confirm':'busy', deleted=false;
+const $=id=>document.getElementById(id);
+function show(v){['vconf','vbusy','vfinal'].forEach(x=>$(x).classList.toggle('on',x===v))}
+function render(){
+  const d=D[lang], un=MODE==='uninstall';
+  $('lang').textContent=lang==='ru'?'EN':'RU';
+  $('c1').textContent=d.c1;$('c2').textContent=d.c2;$('c3').textContent=d.c3;$('go').textContent=d.go;$('cancel').textContent=d.cancel;
+  $('t1').textContent=un?d.u1:d.t1;$('s1').textContent=un?d.us1:d.s1;
+  $('step').textContent=STEPS[cur]?STEPS[cur][lang]:'';
+  if(state==='done'){
+    $('t2').textContent=un?d.ut2:d.t2;
+    $('s2').textContent=un?(deleted?d.us2d:d.us2k):d.s2;
+    $('chkl').textContent=d.chk;$('chkrow').style.display=un?'none':'flex';$('ok').textContent=d.ok;
+  }
+  if(state==='fail'){$('t2').textContent=d.bad;$('s2').textContent=d.badS;$('ok').textContent=d.close}
+  show(state==='confirm'?'vconf':state==='busy'?'vbusy':'vfinal');
+}
+function progress(i){cur=i;state='busy';$('bar').style.width=Math.round((i+0.5)/STEPS.length*100)+'%';render()}
+function done(del){state='done';deleted=!!del;$('bar').style.width='100%';$('ok').focus();render()}
+function fail(msg){state='fail';$('tick').textContent='!';$('tick').classList.add('bad');$('chkrow').style.display='none';$('err').textContent=msg;render()}
+$('ok').onclick=()=>setupFinish(state==='done'&&MODE!=='uninstall'&&$('chk').checked);
+$('go').onclick=()=>{state='busy';cur=0;render();uninstallStart($('del').checked)};
+$('cancel').onclick=()=>setupCancel();
+$('lang').onclick=()=>{lang=lang==='ru'?'en':'ru';render()};
+document.addEventListener('keydown',e=>{if(e.key==='Enter'&&(state==='done'||state==='fail'))$('ok').click()});
+render();
+</script></body></html>`

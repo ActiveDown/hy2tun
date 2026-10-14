@@ -101,8 +101,8 @@ Installed: run `Hy2Tun-Setup.exe`, open **Hy2Tun** from the Start menu, add a `h
 *Servers* tab and press **Connect**.
 
 Uninstall: **Settings → Apps → Hy2Tun → Uninstall** (or run `C:\Program Files\Hy2Tun\Uninstall.exe`).
-The uninstaller has the same window as the installer and can optionally delete your settings and
-saved servers too.
+The uninstaller is a separate program with the same window as the installer (what a program does never
+depends on its file name) and can optionally delete your settings and saved servers too.
 
 Other commands: `hy2tun service | install | uninstall [--purge] | gui | api | dry | version`.
 
