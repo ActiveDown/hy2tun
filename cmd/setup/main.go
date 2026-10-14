@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/ActiveDown/hy2tun/internal/logo"
+	"github.com/ActiveDown/hy2tun/internal/setupmode"
 	"github.com/ActiveDown/hy2tun/internal/winui"
 	"github.com/jchv/go-webview2"
 	"golang.org/x/sys/windows"
@@ -171,8 +172,9 @@ var installSteps = []step{
 		}
 		// keep this executable as the uninstaller (same window, same style)
 		if self, err := os.Executable(); err == nil {
-			if err := copyFile(self, filepath.Join(in.dir, uninstallExe)); err != nil {
-				return err
+			dst := filepath.Join(in.dir, uninstallExe)
+			if !setupmode.SamePath(self, dst) {
+				copyFile(self, dst) // best effort: it may be in use by a running uninstaller
 			}
 		}
 		return nil
@@ -268,18 +270,7 @@ func page(list []step) string {
 	}
 	b, _ := json.Marshal(st)
 	html := strings.Replace(setupHTML, "/*STEPS*/[]", string(b), 1)
-	return strings.Replace(html, "/*LOGO*/", base64.StdEncoding.EncodeToString(logo.PNG(logo.App(176))), 1)
-}
-
-func hasArg(names ...string) bool {
-	for _, a := range os.Args[1:] {
-		for _, n := range names {
-			if strings.EqualFold(a, n) {
-				return true
-			}
-		}
-	}
-	return false
+	return strings.ReplaceAll(html, "/*LOGO*/", base64.StdEncoding.EncodeToString(logo.PNG(logo.App(176))))
 }
 
 // relocateForUninstall copies this executable to %TEMP% and starts it from
@@ -308,7 +299,8 @@ func removeSelfLater() {
 }
 
 func main() {
-	uninstall := hasArg("/uninstall", "--uninstall", "-uninstall")
+	self, _ := os.Executable()
+	uninstall := setupmode.IsUninstall(os.Args[1:], self)
 	elevateIfNeeded()
 	in := newInstaller()
 	if uninstall && relocateForUninstall(in) {

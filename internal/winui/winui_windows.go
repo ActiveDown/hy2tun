@@ -86,11 +86,22 @@ func changeStyle(hwnd unsafe.Pointer, remove, add uintptr) {
 // MakeFixedSize removes the sizing border and the maximize button.
 func MakeFixedSize(hwnd unsafe.Pointer) { changeStyle(hwnd, wsThickFrame|wsMaximizeBox, 0) }
 
-// SetCloseEnabled hides or restores the system menu (and the X button).
+var (
+	procGetSystemMenu = user32.NewProc("GetSystemMenu")
+	procEnableMenu    = user32.NewProc("EnableMenuItem")
+)
+
+// SetCloseEnabled greys out (or re-enables) the close button. The system menu
+// stays, so the window keeps its title-bar icon and the minimize button.
 func SetCloseEnabled(hwnd unsafe.Pointer, on bool) {
-	if on {
-		changeStyle(hwnd, 0, wsSysMenu)
-	} else {
-		changeStyle(hwnd, wsSysMenu, 0)
+	const scClose, mfByCommand, mfEnabled, mfGrayed = 0xF060, 0x0, 0x0, 0x1
+	menu, _, _ := procGetSystemMenu.Call(uintptr(hwnd), 0)
+	if menu == 0 {
+		return
 	}
+	flag := uintptr(mfByCommand | mfGrayed)
+	if on {
+		flag = mfByCommand | mfEnabled
+	}
+	procEnableMenu.Call(menu, scClose, flag)
 }
