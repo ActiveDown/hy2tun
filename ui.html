@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Hy2Tun</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%237a5cff'/%3E%3Cstop offset='1' stop-color='%2300c2ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='3' y='3' width='58' height='58' rx='15' fill='url(%23g)'/%3E%3C/svg%3E">
 <style>
 :root{--bg:#0e1015;--card:#171a21;--card2:#1d212b;--line:#272c38;--tx:#eceff5;--mut:#8b93a5;--ok:#3ddc84;--acc:#7a5cff;--warn:#f0b24a;--bad:#ef5350;--btn:#252a36}
 @media (prefers-color-scheme: light){:root{--bg:#f2f4f8;--card:#fff;--card2:#f6f7fb;--line:#dde2ec;--tx:#171a21;--mut:#667085;--ok:#12a057;--acc:#5b3df5;--warn:#b7791f;--bad:#c92a2a;--btn:#e9ecf3}}
@@ -95,6 +96,13 @@ pre{margin:0;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:br
 #toast{position:fixed;left:50%;bottom:70px;transform:translateX(-50%);background:var(--card2);border:1px solid var(--line);padding:8px 14px;border-radius:10px;opacity:0;transition:.25s;pointer-events:none;font-size:13px}
 #toast.on{opacity:1}
 .langbtn{margin-left:auto}
+/* inside the desktop window the title bar already shows the icon and the name:
+   keep only a slim row with the language switch right under the close button */
+.inapp .top{padding:8px 14px 0;border-bottom:0;justify-content:flex-end;background:var(--bg)}
+.inapp .top .logo,.inapp .top b{display:none}
+.inapp .langbtn{background:transparent;border:1px solid var(--line);color:var(--mut);padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;letter-spacing:.04em}
+.inapp .langbtn:hover{color:var(--tx);border-color:var(--mut)}
+.inapp .hero{padding-top:10px}
 </style></head><body>
 <div class="top"><div class="logo"></div><b>Hy2Tun</b><button class="btn sm langbtn" id="langBtn" title="Language / Язык">RU</button></div>
 <main>
@@ -470,6 +478,8 @@ async function tick(){
   try{renderState(await (await api('/api/state')).json()); if(page==='log')loadLog();}
   catch(e){$('stline').textContent=t('svc.down');$('stsub').textContent=t('svc.downsub')}
 }
+// WebView2 (the desktop window) exposes chrome.webview; in a plain browser tab keep the full header.
+if(window.chrome&&window.chrome.webview)document.body.classList.add('inapp');
 applyLang();
 loadCfg().then(()=>{tick();setInterval(tick,1000)});
 </script></body></html>

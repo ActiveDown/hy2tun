@@ -2,12 +2,10 @@ package main
 
 import (
 	"bytes"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
-	"image/png"
 	"io"
 	"net"
 	"net/http"
@@ -19,6 +17,8 @@ import (
 	"time"
 
 	"fyne.io/systray"
+	"github.com/ActiveDown/hy2tun/internal/logo"
+	"github.com/ActiveDown/hy2tun/internal/winui"
 	"github.com/jchv/go-webview2"
 	"golang.org/x/sys/windows"
 )
@@ -110,7 +110,7 @@ func (g *gui) openWindow() {
 			DataPath:  data,
 			AutoFocus: true,
 			WindowOptions: webview2.WindowOptions{
-				Title: "Hy2Tun", Width: 460, Height: 800, Center: true,
+				Title: "Hy2Tun", Width: 460, Height: 800, Center: true, IconId: 2,
 			},
 		})
 		if w == nil {
@@ -119,6 +119,7 @@ func (g *gui) openWindow() {
 			return
 		}
 		defer w.Destroy()
+		winui.ApplyTheme(w.Window(), winui.SystemTheme())
 		w.SetSize(460, 800, webview2.HintNone)
 		if g.serviceUp() {
 			w.Navigate(g.pageURL())
@@ -146,40 +147,28 @@ func msgBox(title, text string) {
 
 // ---- tray icon ----
 
-func trayIcon(c color.RGBA) []byte {
-	const n = 32
-	img := image.NewRGBA(image.Rect(0, 0, n, n))
-	cx, cy, r := float64(n)/2-0.5, float64(n)/2-0.5, float64(n)/2-2
-	for y := 0; y < n; y++ {
-		for x := 0; x < n; x++ {
-			dx, dy := float64(x)-cx, float64(y)-cy
-			d := dx*dx + dy*dy
-			switch {
-			case d <= (r-4)*(r-4):
-				img.SetRGBA(x, y, c)
-			case d <= r*r:
-				img.SetRGBA(x, y, color.RGBA{c.R / 2, c.G / 2, c.B / 2, 255})
-			}
+// trayIcon builds a multi-size ICO from the application logo, optionally grey
+// (disconnected) and with a status badge in the corner.
+func trayIcon(dot *color.NRGBA, gray bool) []byte {
+	var imgs []*image.NRGBA
+	for _, s := range []int{16, 24, 32, 48} {
+		im := logo.App(s)
+		if gray {
+			im = logo.Gray(im)
 		}
+		if dot != nil {
+			im = logo.Dot(im, *dot)
+		}
+		imgs = append(imgs, im)
 	}
-	var pngBuf bytes.Buffer
-	png.Encode(&pngBuf, img)
-	// ICO container with one PNG image
-	var ico bytes.Buffer
-	binary.Write(&ico, binary.LittleEndian, []uint16{0, 1, 1})
-	ico.Write([]byte{n, n, 0, 0})
-	binary.Write(&ico, binary.LittleEndian, []uint16{1, 32})
-	binary.Write(&ico, binary.LittleEndian, uint32(pngBuf.Len()))
-	binary.Write(&ico, binary.LittleEndian, uint32(22))
-	ico.Write(pngBuf.Bytes())
-	return ico.Bytes()
+	return logo.ICO(imgs...)
 }
 
 var (
-	iconOff  = trayIcon(color.RGBA{140, 148, 165, 255})
-	iconOn   = trayIcon(color.RGBA{61, 220, 132, 255})
-	iconBusy = trayIcon(color.RGBA{240, 178, 74, 255})
-	iconErr  = trayIcon(color.RGBA{239, 83, 80, 255})
+	iconOff  = trayIcon(nil, true)
+	iconOn   = trayIcon(&color.NRGBA{61, 220, 132, 255}, false)
+	iconBusy = trayIcon(&color.NRGBA{240, 178, 74, 255}, false)
+	iconErr  = trayIcon(&color.NRGBA{239, 83, 80, 255}, false)
 )
 
 func (g *gui) onReady() {
@@ -298,7 +287,9 @@ func cmdGUI(args []string) {
 	dir, _ := resolveDataDir(c.data)
 
 	// single instance
-	name, _ := windows.UTF16PtrFromString(guiMutex)
+	// HY2TUN_GUI_INSTANCE lets a second, independent window run for tests
+	inst := os.Getenv("HY2TUN_GUI_INSTANCE")
+	name, _ := windows.UTF16PtrFromString(guiMutex + inst)
 	h, err := windows.CreateMutex(nil, false, name)
 	if err == windows.ERROR_ALREADY_EXISTS {
 		if conn, err := net.DialTimeout("tcp", guiWakeAddr, time.Second); err == nil {
@@ -310,7 +301,7 @@ func cmdGUI(args []string) {
 	_ = h
 
 	g := &gui{dir: dir, apiAddr: c.ui}
-	if ln, err := net.Listen("tcp", guiWakeAddr); err == nil {
+	if ln, err := net.Listen("tcp", guiWakeAddr); err == nil && inst == "" {
 		go func() {
 			for {
 				conn, err := ln.Accept()

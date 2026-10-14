@@ -1,0 +1,82 @@
+name: release
+
+# Builds the installer and the portable zip for a version tag (v1.2.3) and
+# publishes them as a GitHub release. The binaries are Authenticode-signed when
+# the repository has the secrets SIGN_PFX_BASE64 (base64 of a .pfx) and
+# SIGN_PFX_PASSWORD; without them the release is built unsigned.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version without the leading v (for a manual dry run)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: go test ./...
+
+      - name: Version
+        id: ver
+        shell: pwsh
+        run: |
+          if ('${{ github.event_name }}' -eq 'push') { $v = '${{ github.ref_name }}'.TrimStart('v') }
+          else { $v = '${{ inputs.version }}' }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Restore the signing certificate
+        id: cert
+        shell: pwsh
+        env:
+          PFX_B64: ${{ secrets.SIGN_PFX_BASE64 }}
+        run: |
+          if ($env:PFX_B64) {
+            $p = Join-Path $env:RUNNER_TEMP 'codesign.pfx'
+            [IO.File]::WriteAllBytes($p, [Convert]::FromBase64String($env:PFX_B64))
+            "pfx=$p" >> $env:GITHUB_OUTPUT
+          } else {
+            "pfx=" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Build
+        shell: pwsh
+        env:
+          SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
+        run: |
+          $a = @{ Version = '${{ steps.ver.outputs.version }}' }
+          if ('${{ steps.cert.outputs.pfx }}') { $a.Pfx = '${{ steps.cert.outputs.pfx }}' }
+          ./scripts/build.ps1 @a
+
+      - name: Publish release
+        if: github.event_name == 'push'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = '${{ steps.ver.outputs.version }}'
+          $pre = if ($v -match '-') { '--prerelease' } else { '' }
+          gh release create "v$v" `
+            "dist/Hy2Tun-$v-setup-windows-amd64.exe" `
+            "dist/Hy2Tun-$v-portable-windows-amd64.zip" `
+            "dist/SHA256SUMS.txt" `
+            --title "Hy2Tun $v" --generate-notes $pre
+
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          name: hy2tun-${{ steps.ver.outputs.version }}
+          path: dist/*.exe, dist/*.zip, dist/SHA256SUMS.txt

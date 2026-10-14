@@ -24,3 +24,8 @@ token
 .vscode/
 .idea/
 Thumbs.db
+
+# local build output and icon work files
+/dist/
+assets/variant-*.png
+assets/preview-sizes.png

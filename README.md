@@ -58,8 +58,34 @@ go build -trimpath -ldflags "-s -w -H=windowsgui" -o Hy2Tun.exe .   # service + 
 go build -trimpath -ldflags "-s -w -H=windowsgui" -o Hy2Tun-Setup.exe ./cmd/setup
 ```
 
+Or all at once (downloads and verifies `wintun.dll`, builds, packs, writes checksums into `dist/`):
+
+```powershell
+.\scripts\build.ps1 -Version 0.5.0
+```
+
 `wintun.dll` (amd64) comes from <https://www.wintun.net/>; it is signed by WireGuard LLC and is
-not part of this repository.
+not part of this repository (the build script pins its SHA-256).
+
+### Code signing
+
+Windows shows "unknown publisher" for unsigned programs. To sign the release build you need a
+code-signing certificate issued by a CA that Windows trusts:
+
+```powershell
+$env:SIGN_PFX_PASSWORD = '...'
+.\scripts\build.ps1 -Version 0.5.0 -Pfx .\codesign.pfx        # or: -Thumbprint <token/store cert>
+```
+
+The GitHub Actions workflow (`.github/workflows/release.yml`) builds and publishes a release for
+every `v*` tag and signs it automatically when the repository secrets `SIGN_PFX_BASE64` and
+`SIGN_PFX_PASSWORD` are set. A self-signed certificate works technically, but is shown as an
+unknown publisher on every other machine.
+
+### Icon
+
+The icon is generated from code (`internal/logo`, `go run ./tools/genicon`) and embedded with
+[rsrc](https://github.com/akavel/rsrc): `rsrc -manifest assets/app.manifest -ico assets/app.ico -arch amd64 -o rsrc_windows_amd64.syso`.
 
 ## Run
 

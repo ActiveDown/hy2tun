@@ -25,7 +25,8 @@ import (
 	"time"
 )
 
-const appVersion = "0.4.0"
+// appVersion is overridden at build time: -ldflags "-X main.appVersion=1.2.3"
+var appVersion = "0.5.0"
 
 type commonFlags struct {
 	data      string
