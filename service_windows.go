@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -71,11 +72,23 @@ func cmdService(args []string) {
 	}
 }
 
+// requireAdmin continues only with administrator rights: otherwise the same
+// command is started again through the UAC prompt and this process exits.
 func requireAdmin() {
-	if !isAdmin() {
-		fmt.Fprintln(os.Stderr, tr("Нужны права администратора. Запустите от имени администратора.", "Administrator rights are required. Run as administrator."))
-		os.Exit(1)
+	if isAdmin() {
+		return
 	}
+	exe, err := os.Executable()
+	if err == nil {
+		verb, _ := windows.UTF16PtrFromString("runas")
+		file, _ := windows.UTF16PtrFromString(exe)
+		args, _ := windows.UTF16PtrFromString(strings.Join(os.Args[1:], " "))
+		if windows.ShellExecute(0, verb, file, args, nil, windows.SW_NORMAL) == nil {
+			os.Exit(0)
+		}
+	}
+	fmt.Fprintln(os.Stderr, tr("Нужны права администратора. Запустите от имени администратора.", "Administrator rights are required. Run as administrator."))
+	os.Exit(1)
 }
 
 // cmdInstall registers the service (automatic, delayed start, restart on
@@ -151,6 +164,18 @@ func cmdUninstall(args []string) {
 	for _, a := range args {
 		if a == "--purge" || a == "-purge" {
 			purge = true
+		}
+	}
+	if purge {
+		// full removal has its own window (Uninstall.exe, installed next to this
+		// file); older installations that point here are forwarded to it
+		if self, err := os.Executable(); err == nil {
+			un := filepath.Join(filepath.Dir(self), "Uninstall.exe")
+			if _, err := os.Stat(un); err == nil {
+				if exec.Command(un, "/uninstall").Start() == nil {
+					return
+				}
+			}
 		}
 	}
 	m, err := mgr.Connect()
