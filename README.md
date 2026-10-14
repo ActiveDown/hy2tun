@@ -113,7 +113,14 @@ go test ./...
 - The Russian address list is a snapshot; refresh it with `go run ./tools/genru`.
 - No code signing, so SmartScreen may warn about the installer.
 
-## Third-party code
+## License
+
+Hy2Tun is free software under the [MIT License](LICENSE). Contributions are welcome under the
+same license.
+
+### Third-party code
+
+All dependencies are permissively licensed and compatible with the MIT License:
 
 - [Hysteria](https://github.com/apernet/hysteria) core — MIT
 - [gVisor](https://gvisor.dev/) netstack — Apache-2.0
@@ -121,5 +128,5 @@ go test ./...
   WireGuard for Windows (WFP bindings) — MIT, see `internal/wfp/LICENSE-wireguard-windows.txt`
 - [go-webview2](https://github.com/jchv/go-webview2) — MIT, [fyne systray](https://github.com/fyne-io/systray) — Apache-2.0,
   [go-qrcode](https://github.com/skip2/go-qrcode) — MIT
-
-The license of Hy2Tun itself has not been chosen yet.
+- [Wintun](https://www.wintun.net/) (`wintun.dll`, downloaded separately) — see its own license terms
+- The Russian address list is derived from the public RIPE NCC delegated statistics.
