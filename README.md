@@ -4,9 +4,9 @@ A Windows client for [Hysteria 2](https://v2.hysteria.network/) with a global TU
 routing** and a desktop window in the style of Amnezia. Written in Go on top of the official
 `hysteria/core/v2` library.
 
-> **Status: early / experimental.** The routing engine and the UI are exercised by tests and by
-> real use in portable mode. The Windows service, the WFP firewall rules, the installer and the
-> desktop window need more field testing — see [Known limitations](#known-limitations).
+> **Status: first stable release (0.5).** The routing engine, the UI, the Windows service, the
+> installer / uninstaller and the firewall rules have been exercised by tests and by real use on
+> Windows 11. Binaries are not code-signed yet — see [Known limitations](#known-limitations).
 
 ## Features
 
@@ -137,7 +137,7 @@ go test ./...
 
 ## Known limitations
 
-- Windows only; the installer, service, WFP rules and the window have had limited real-world testing.
+- Windows only (10/11, x64); field-tested on Windows 11.
 - Kill switch matches applications by executable path (child processes with another exe are not covered).
 - `obfs` (Salamander) and port hopping are not implemented yet.
 - The Russian address list is a snapshot; refresh it with `go run ./tools/genru`.
