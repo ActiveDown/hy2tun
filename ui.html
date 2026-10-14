@@ -354,7 +354,7 @@ $('auto').onchange=e=>api('/api/app',{method:'POST',body:JSON.stringify({auto_co
 
 /* ---- servers ---- */
 function renderServers(){
-  $('srvList').innerHTML=S.servers.map(s=>'<div class="srv'+(s.active&&S.status.state==='connected'?' act':'')+'"><div class="n"><b>'+esc(s.name)+'</b><span class="mut small">'+esc(s.host)+':'+esc(s.port)+' · SNI '+esc(s.sni)+'</span></div>'+
+  $('srvList').innerHTML=S.servers.map(s=>'<div class="srv'+(s.active&&S.status.state==='connected'?' act':'')+'"><div class="n"><b>'+esc(s.name)+'</b><span class="mut small">'+esc(s.host)+':'+esc(s.port)+' · SNI '+esc(s.sni)+(s.obfs?' · '+esc(s.obfs):'')+(s.hop?' · hop '+esc(s.hop):'')+'</span></div>'+
     '<div class="acts"><button class="btn" data-share="'+s.id+'">'+esc(t('btn.share'))+'</button><button class="btn dng" data-del="'+s.id+'">'+esc(t('btn.delete'))+'</button></div></div>').join('')||'<div class="mut" style="padding:8px">'+esc(t('srv.empty'))+'</div>';
 }
 $('srvList').onclick=async e=>{

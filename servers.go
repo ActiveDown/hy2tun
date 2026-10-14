@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +27,8 @@ type ServerView struct {
 	Port   string `json:"port"`
 	SNI    string `json:"sni"`
 	Active bool   `json:"active"`
+	Obfs   string `json:"obfs,omitempty"` // "salamander" / "gecko"
+	Hop    string `json:"hop,omitempty"`  // port hopping set, e.g. "20000-30000"
 }
 
 type storeData struct {
@@ -86,8 +87,8 @@ func (s *serverStore) add(link, name string) (Server, error) {
 		return Server{}, errors.New(tr("в ссылке нет пароля (hy2://пароль@хост:порт)", "the link has no password (hy2://password@host:port)"))
 	}
 	if name == "" {
-		if u, err := url.Parse(link); err == nil && u.Fragment != "" {
-			name = u.Fragment
+		if l.Name != "" {
+			name = l.Name
 		} else {
 			name = l.Host
 		}
@@ -199,6 +200,7 @@ func (s *serverStore) views(active string) []ServerView {
 		v := ServerView{ID: e.ID, Name: e.Name, Active: e.ID == active}
 		if l, err := parseLink(e.Link); err == nil {
 			v.Host, v.Port, v.SNI = l.Host, l.Port, l.SNI
+			v.Obfs, v.Hop = l.Obfs, l.Ports
 		}
 		out = append(out, v)
 	}

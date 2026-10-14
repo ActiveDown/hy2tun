@@ -68,7 +68,6 @@ type session struct {
 	server   Server
 	link     *hy2Link
 	serverIP net.IP
-	addr     *net.UDPAddr
 	box      *hcBox
 	dev      tun.Device
 	nc       *netConfig
@@ -318,27 +317,12 @@ func resolveServer(host string) (net.IP, error) {
 	return ips[0], nil
 }
 
-func newHysteriaClient(l *hy2Link, addr *net.UDPAddr, lazy bool) (client.Client, error) {
-	return client.NewReconnectableClient(func() (*client.Config, error) {
-		return &client.Config{
-			ServerAddr: addr,
-			Auth:       l.Auth,
-			TLSConfig:  client.TLSConfig{ServerName: l.SNI, InsecureSkipVerify: l.Insecure},
-		}, nil
-	}, func(_ client.Client, info *client.HandshakeInfo, n int) {
-		log.Printf("hysteria2 connected (attempt %d, udp relay: %v)", n, info.UDPEnabled)
-	}, lazy)
-}
-
 // establish builds a complete session. On any error everything created so far
 // is released again.
 func (e *Engine) establish(srv Server) (s *session, err error) {
 	l, err := parseLink(srv.Link)
 	if err != nil {
 		return nil, err
-	}
-	if l.Obfs != "" {
-		return nil, fmt.Errorf(tr("obfs %q пока не поддерживается", "obfs %q is not supported yet"), l.Obfs)
 	}
 	if !isAdmin() {
 		return nil, errors.New(tr("нужны права администратора (запустите службу или программу от администратора)", "administrator rights are required (run the service, or run the program as administrator)"))
@@ -347,8 +331,9 @@ func (e *Engine) establish(srv Server) (s *session, err error) {
 	if err != nil {
 		return nil, err
 	}
-	port, _ := net.LookupPort("udp", l.Port)
-	addr := &net.UDPAddr{IP: serverIP, Port: port}
+	if l.Obfs != "" || l.Hops() {
+		log.Printf("transport: obfs=%q, port hopping=%q", l.Obfs, l.Ports)
+	}
 
 	rt, rerr := bestRoute(serverIP)
 	if rerr != nil {
@@ -360,7 +345,7 @@ func (e *Engine) establish(srv Server) (s *session, err error) {
 		}
 	}
 
-	hc, err := newHysteriaClient(l, addr, false)
+	hc, err := newHysteriaClient(l, serverIP, false)
 	if err != nil {
 		return nil, fmt.Errorf(tr("подключение к серверу: %v", "connecting to the server: %v"), err)
 	}
@@ -410,7 +395,7 @@ func (e *Engine) establish(srv Server) (s *session, err error) {
 	}
 	cleanup = append(cleanup, func() { nc.revert() })
 
-	s = &session{server: srv, link: l, serverIP: serverIP, addr: addr, box: box, dev: dev,
+	s = &session{server: srv, link: l, serverIP: serverIP, box: box, dev: dev,
 		nc: nc, tn: tn, direct: direct, stop: make(chan struct{})}
 	s.wg.Add(1)
 	go e.watch(s)
@@ -481,7 +466,7 @@ func (e *Engine) rebind(s *session, rt *physRoute, resumed, sameRoute bool) {
 		e.router.physV6 = hasGlobalV6(rt.IfIndex)
 	}
 	// The QUIC connection is bound to the old path: start a fresh client.
-	if nc, err := newHysteriaClient(s.link, s.addr, true); err == nil {
+	if nc, err := newHysteriaClient(s.link, s.serverIP, true); err == nil {
 		s.box.replace(nc)
 	} else {
 		log.Printf("network: client refresh failed: %v", err)

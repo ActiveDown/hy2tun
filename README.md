@@ -28,6 +28,8 @@ routing** and a desktop window in the style of Amnezia. Written in Go on top of 
 - **DNS leak protection** and an optional **kill switch** for the selected apps, implemented
   with the Windows Filtering Platform (dynamic session — nothing persistent is left behind).
 - **Server list** with `hy2://` import, copy / QR code sharing.
+- **Obfuscation and port hopping**: `obfs=salamander` (or `gecko`) with `obfs-password`, a port range in the
+  address (`host:20000-30000`) or `mport=20000-30000`, `hop-interval=<seconds>`, and `pinSHA256` certificate pinning.
 - **English and Russian** UI (English by default).
 - Self-contained **installer** (`Hy2Tun-Setup.exe`).
 
@@ -139,7 +141,7 @@ go test ./...
 
 - Windows only (10/11, x64); field-tested on Windows 11.
 - Kill switch matches applications by executable path (child processes with another exe are not covered).
-- `obfs` (Salamander) and port hopping are not implemented yet.
+- Link parameters that are not supported (for example an unknown `obfs` type) are rejected with an error instead of being ignored.
 - The Russian address list is a snapshot; refresh it with `go run ./tools/genru`.
 - No code signing, so SmartScreen may warn about the installer.
 

@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -237,11 +236,10 @@ func dryRun(srv Server) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	port, _ := net.LookupPort("udp", l.Port)
 	if rt, err := bestRoute(ip); err == nil {
 		log.Printf("server %s via interface %s (%s), gateway %s", ip, rt.IfIndex, rt.Desc, rt.NextHop)
 	}
-	hc, err := newHysteriaClient(l, &net.UDPAddr{IP: ip, Port: port}, false)
+	hc, err := newHysteriaClient(l, ip, false)
 	if err != nil {
 		log.Fatalf("hysteria2 connect: %v", err)
 	}
