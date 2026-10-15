@@ -25,7 +25,7 @@ import (
 )
 
 // appVersion is overridden at build time: -ldflags "-X main.appVersion=1.2.3"
-var appVersion = "0.5.2"
+var appVersion = "0.6.0"
 
 type commonFlags struct {
 	data      string

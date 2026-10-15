@@ -19,7 +19,7 @@ import (
 var payload embed.FS
 
 // appVersion is overridden at build time: -ldflags "-X main.appVersion=1.2.3"
-var appVersion = "0.5.2"
+var appVersion = "0.6.0"
 
 func main() {
 	setupcore.Run(setupcore.Options{Mode: setupcore.Install, Version: appVersion, Payload: payload})
