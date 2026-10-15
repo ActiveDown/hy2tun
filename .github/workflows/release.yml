@@ -68,14 +68,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $v = '${{ steps.ver.outputs.version }}'
-          $pre = if ($v -match '-') { '--prerelease' } else { '' }
+          $pre = @(); if ($v -match '-') { $pre = @('--prerelease') }
           $files = @("dist/Hy2Tun-$v-setup-windows-amd64.exe", "dist/Hy2Tun-$v-portable-windows-amd64.zip", "dist/SHA256SUMS.txt")
           gh release view "v$v" *> $null
           if ($LASTEXITCODE -eq 0) {
             # the release already exists (created by hand): attach the files to it
             gh release upload "v$v" @files --clobber
           } else {
-            gh release create "v$v" @files --title "Hy2Tun $v" --generate-notes $pre
+            $notes = "RELEASE_NOTES_$v.md"
+            if (Test-Path $notes) { $n = @('--notes-file', $notes) } else { $n = @('--generate-notes') }
+            gh release create "v$v" @files --title "Hy2Tun $v" @n @pre
           }
 
       - uses: actions/upload-artifact@v4
