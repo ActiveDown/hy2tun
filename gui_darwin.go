@@ -2,12 +2,113 @@
 
 package main
 
+/*
+#cgo CFLAGS: -x objective-c -fmodules
+#cgo LDFLAGS: -framework Cocoa -framework WebKit
+
+#import <Cocoa/Cocoa.h>
+#import <WebKit/WebKit.h>
+
+@interface Hy2TunWinDelegate : NSObject <NSWindowDelegate>
+@end
+
+@implementation Hy2TunWinDelegate
+- (BOOL)windowShouldClose:(NSWindow *)sender {
+    [sender orderOut:nil];
+    return NO;
+}
+@end
+
+static NSWindow *globalWindow = nil;
+static WKWebView *globalWebView = nil;
+static Hy2TunWinDelegate *globalDelegate = nil;
+
+void setupMacAppMenu(const void *iconBytes, int iconLen) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+
+        if (iconBytes != NULL && iconLen > 0) {
+            NSData *data = [NSData dataWithBytes:iconBytes length:iconLen];
+            NSImage *img = [[NSImage alloc] initWithData:data];
+            if (img != nil) {
+                [NSApp setApplicationIconImage:img];
+            }
+        }
+
+        NSMenu *mainMenu = [[NSMenu alloc] init];
+        NSMenuItem *appMenuItem = [[NSMenuItem alloc] init];
+        [mainMenu addItem:appMenuItem];
+
+        NSMenuItem *editMenuItem = [[NSMenuItem alloc] init];
+        [mainMenu addItem:editMenuItem];
+
+        NSMenu *editMenu = [[NSMenu alloc] initWithTitle:@"Edit"];
+        [editMenu addItemWithTitle:@"Undo" action:@selector(undo:) keyEquivalent:@"z"];
+        [editMenu addItemWithTitle:@"Redo" action:@selector(redo:) keyEquivalent:@"Z"];
+        [editMenu addItem:[NSMenuItem separatorItem]];
+        [editMenu addItemWithTitle:@"Cut" action:@selector(cut:) keyEquivalent:@"x"];
+        [editMenu addItemWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@"c"];
+        [editMenu addItemWithTitle:@"Paste" action:@selector(paste:) keyEquivalent:@"v"];
+        [editMenu addItemWithTitle:@"Select All" action:@selector(selectAll:) keyEquivalent:@"a"];
+        [editMenuItem setSubmenu:editMenu];
+
+        [NSApp setMainMenu:mainMenu];
+    });
+}
+
+void showNativeWindow(const char *urlStr) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (globalWindow == nil) {
+            NSRect frame = NSMakeRect(0, 0, 460, 800);
+            NSWindowStyleMask mask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable;
+            globalWindow = [[NSWindow alloc] initWithContentRect:frame
+                                                       styleMask:mask
+                                                         backing:NSBackingStoreBuffered
+                                                           defer:NO];
+            [globalWindow setTitle:@"Hy2Tun"];
+            [globalWindow center];
+            [globalWindow setAppearance:[NSAppearance appearanceNamed:NSAppearanceNameDarkAqua]];
+            [globalWindow setBackgroundColor:[NSColor colorWithRed:14.0/255.0 green:16.0/255.0 blue:21.0/255.0 alpha:1.0]];
+
+            globalDelegate = [[Hy2TunWinDelegate alloc] init];
+            [globalWindow setDelegate:globalDelegate];
+
+            WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];
+            globalWebView = [[WKWebView alloc] initWithFrame:[[globalWindow contentView] bounds] configuration:config];
+            [globalWebView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+            [globalWebView setValue:@NO forKey:@"drawsBackground"];
+            [[globalWindow contentView] addSubview:globalWebView];
+        }
+
+        if (urlStr != NULL && strlen(urlStr) > 0) {
+            NSString *nsUrl = [NSString stringWithUTF8String:urlStr];
+            NSURLRequest *req = [NSURLRequest requestWithURL:[NSURL URLWithString:nsUrl]];
+            [globalWebView loadRequest:req];
+        }
+
+        [globalWindow makeKeyAndOrderFront:nil];
+        [NSApp activateIgnoringOtherApps:YES];
+    });
+}
+
+void loadNativeHTML(const char *htmlStr) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (globalWebView != nil && htmlStr != NULL) {
+            NSString *nsHtml = [NSString stringWithUTF8String:htmlStr];
+            [globalWebView loadHTMLString:nsHtml baseURL:nil];
+        }
+    });
+}
+*/
+import "C"
+
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"image/color"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -16,6 +117,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unsafe"
 
 	"fyne.io/systray"
 	"github.com/ActiveDown/hy2tun/internal/logo"
@@ -30,6 +132,7 @@ type gui struct {
 	apiAddr string
 
 	mu        sync.Mutex
+	windowOn  bool
 	connectMI *systray.MenuItem
 	openMI    *systray.MenuItem
 	quitMI    *systray.MenuItem
@@ -72,8 +175,45 @@ func (g *gui) serviceUp() bool {
 
 func (g *gui) pageURL() string { return "http://" + g.apiAddr + "/?t=" + g.token() }
 
+func waitingHTML() string {
+	title := tr("Служба Hy2Tun запускается...", "Hy2Tun service is starting...")
+	body := tr("Если служба ещё не запущена, панель подключится автоматически через пару секунд.",
+		"If the service is not running yet, the panel will connect automatically in a few seconds.")
+	return `<!doctype html><meta charset="utf-8"><body style="margin:0;height:100vh;display:grid;place-items:center;background:#0e1015;color:#eceff5;font:15px -apple-system,BlinkMacSystemFont,sans-serif;text-align:center">
+<div><div style="width:40px;height:40px;border-radius:12px;margin:0 auto 14px;background:linear-gradient(135deg,#7a5cff,#00c2ff)"></div>
+<b>` + title + `</b><p style="color:#8b93a5;max-width:340px;line-height:1.4">` + body + `</p></div></body>`
+}
+
 func (g *gui) openWindow() {
-	_ = exec.Command("open", g.pageURL()).Start()
+	g.mu.Lock()
+	g.windowOn = true
+	g.mu.Unlock()
+
+	if g.serviceUp() {
+		cURL := C.CString(g.pageURL())
+		defer C.free(unsafe.Pointer(cURL))
+		C.showNativeWindow(cURL)
+	} else {
+		cEmpty := C.CString("")
+		defer C.free(unsafe.Pointer(cEmpty))
+		C.showNativeWindow(cEmpty)
+
+		cHTML := C.CString(waitingHTML())
+		defer C.free(unsafe.Pointer(cHTML))
+		C.loadNativeHTML(cHTML)
+
+		go func() {
+			for i := 0; i < 600; i++ {
+				time.Sleep(500 * time.Millisecond)
+				if g.serviceUp() {
+					cURL := C.CString(g.pageURL())
+					C.showNativeWindow(cURL)
+					C.free(unsafe.Pointer(cURL))
+					return
+				}
+			}
+		}()
+	}
 }
 
 func msgBox(title, text string) {
@@ -102,6 +242,10 @@ var (
 )
 
 func (g *gui) onReady() {
+	// Setup App Icon and Cocoa Edit menu
+	appIconPNG := logo.PNG(logo.App(128))
+	C.setupMacAppMenu(unsafe.Pointer(&appIconPNG[0]), C.int(len(appIconPNG)))
+
 	systray.SetIcon(iconOff)
 	systray.SetTitle("Hy2Tun")
 	systray.SetTooltip("Hy2Tun — " + tr("отключено", "disconnected"))
@@ -110,7 +254,7 @@ func (g *gui) onReady() {
 	g.openMI = open
 	g.connectMI = systray.AddMenuItem(tr("Подключить", "Connect"), "")
 	systray.AddSeparator()
-	quit := systray.AddMenuItem(tr("Выход", "Exit"), tr("Закрыть значок (служба продолжит работать)", "Close the tray icon (the service keeps running)"))
+	quit := systray.AddMenuItem(tr("Выход", "Exit"), tr("Закрыть Hy2Tun", "Close Hy2Tun"))
 	g.quitMI = quit
 	systray.SetOnTapped(g.openWindow)
 
@@ -123,6 +267,7 @@ func (g *gui) onReady() {
 				g.toggle()
 			case <-quit.ClickedCh:
 				systray.Quit()
+				os.Exit(0)
 				return
 			}
 		}
@@ -145,7 +290,7 @@ func (g *gui) applyTray(state, name string) {
 	g.openMI.SetTitle(tr("Открыть", "Open"))
 	g.openMI.SetTooltip(tr("Показать окно", "Show the window"))
 	g.quitMI.SetTitle(tr("Выход", "Exit"))
-	g.quitMI.SetTooltip(tr("Закрыть значок (служба продолжит работать)", "Close the tray icon (the service keeps running)"))
+	g.quitMI.SetTooltip(tr("Закрыть Hy2Tun", "Close Hy2Tun"))
 	switch state {
 	case stateConnected:
 		systray.SetIcon(iconOn)
@@ -208,7 +353,7 @@ func (g *gui) onExit() {}
 
 func cmdGUI(args []string) {
 	c, _ := parseFlags(args)
-	dir, _ := resolveDataDir(c.data)
+	dir, portable := resolveDataDir(c.data)
 	g := &gui{dir: dir, apiAddr: c.ui}
 
 	// Single instance wake mechanism
@@ -228,6 +373,19 @@ func cmdGUI(args []string) {
 		if conn, err := net.DialTimeout("tcp", guiWakeAddr, 500*time.Millisecond); err == nil {
 			conn.Close()
 			return
+		}
+	}
+
+	// If background service is not running, start an in-process engine API so the window always works!
+	if !g.serviceUp() {
+		ring, _ := setupLogging(dir, false)
+		e := newEngine(c.engineOpts(), dir, !portable, ring)
+		importLink(e, c.link)
+		migrateLegacyLink(e)
+		api, _, err := startAPI(e, c.ui, !portable)
+		if err == nil {
+			defer api.close()
+			log.Printf("started local Hy2Tun engine at %s", c.ui)
 		}
 	}
 

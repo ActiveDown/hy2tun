@@ -134,6 +134,8 @@ func main() {
 	cmd := "run"
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		cmd, args = args[0], args[1:]
+	} else if len(args) == 0 && runtime.GOOS == "darwin" && !isAdmin() {
+		cmd = "gui"
 	}
 	switch cmd {
 	case "run":
