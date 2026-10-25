@@ -150,6 +150,7 @@ pre{margin:0;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:br
     <div class="chips" id="chips"></div>
     <div class="add"><input type="text" id="appIn" list="procs" placeholder="chrome.exe"><button class="btn pri" id="appAdd" data-i18n="btn.add">Add</button></div>
     <datalist id="procs"></datalist>
+    <button class="btn" id="pickInstalled" style="display:none;margin-top:8px" data-i18n="apps.pick">Choose from installed apps…</button>
     <label class="row" style="margin-top:12px;justify-content:flex-start"><input type="checkbox" id="kids"><span class="small" data-i18n="apps.kids">Include child processes (helpers and launchers)</span></label>
     <div class="row" style="margin-top:14px"><div><b data-i18n="kill.title">Kill switch</b><div class="mut small" data-i18n="kill.desc">While the VPN is off, the selected apps cannot reach the internet directly (only in the "Only selected apps" mode).</div></div><label class="sw"><input type="checkbox" id="kill"><span></span></label></div>
     <div class="note" id="emptyApps" data-i18n="apps.empty">The list is empty: no app is selected in this mode.</div>
@@ -192,6 +193,14 @@ pre{margin:0;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:br
   <input type="text" id="appFilter" data-i18n-ph="apps.filter" placeholder="Search the list">
   <div class="mlist" id="appsFull"></div>
   <div class="mfoot"><button class="btn dng sm" id="appsClear" data-i18n="apps.clear">Remove all</button><button class="btn pri sm" id="appsDone" data-i18n="btn.done">Done</button></div>
+</div></div>
+
+<!-- installed apps picker -->
+<div class="modal" id="instModal"><div class="mbox">
+  <div class="mhead"><h2 data-i18n="apps.pick.title">Installed apps</h2><button class="btn sm" id="instClose" data-i18n="btn.close">Close</button></div>
+  <input type="text" id="instFilter" data-i18n-ph="apps.filter" placeholder="Search the list">
+  <div class="mlist" id="instList"></div>
+  <div class="mfoot"><span></span><button class="btn pri sm" id="instDone" data-i18n="btn.done">Done</button></div>
 </div></div>
 
 <!-- share a server link -->
@@ -243,6 +252,7 @@ const L={
   'apps.title':'Apps','apps.hint':'Process name (<code>chrome.exe</code>) or a full path. You can pick from the running programs.',
   'apps.kids':'Include child processes (helpers and launchers)','apps.empty':'The list is empty: no app is selected in this mode.',
   'apps.more':'{0} more','apps.remove':'Remove','apps.filter':'Search the list','apps.clear':'Remove all',
+  'apps.pick':'Choose from installed apps…','apps.pick.title':'Installed apps',
   'apps.none':'Nothing found','apps.listempty':'The list is empty','apps.confirm':'Remove all {0} apps from the list?',
   'kill.title':'Kill switch','kill.desc':'While the VPN is off, the selected apps cannot reach the internet directly (only in the "Only selected apps" mode).',
   'ru.title':'Proxy Russian resources','ru.desc':'Off: <b>.ru, .рф, Yandex, VK</b> and Russian IP addresses go direct, bypassing the server, even inside a selected app.',
@@ -276,6 +286,7 @@ const L={
   'apps.title':'Приложения','apps.hint':'Имя процесса (<code>chrome.exe</code>) или полный путь. Можно выбрать из запущенных.',
   'apps.kids':'Включая дочерние процессы (помощники и лаунчеры)','apps.empty':'Список пуст: в этом режиме ни одно приложение не выбрано.',
   'apps.more':'ещё {0}','apps.remove':'Убрать','apps.filter':'Поиск по списку','apps.clear':'Удалить все',
+  'apps.pick':'Выбрать из установленных…','apps.pick.title':'Установленные приложения',
   'apps.none':'Ничего не найдено','apps.listempty':'Список пуст','apps.confirm':'Удалить все приложения из списка ({0})?',
   'kill.title':'Kill switch','kill.desc':'Пока VPN отключён, выбранным приложениям закрыт выход в интернет напрямую (только режим «Только выбранные»).',
   'ru.title':'Проксировать российские ресурсы','ru.desc':'Выключено: <b>.ru, .рф, Яндекс, VK</b> и адреса РФ идут напрямую, минуя сервер, даже внутри выбранного приложения.',
@@ -313,7 +324,7 @@ document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
   page=b.dataset.p;
   document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));
   document.querySelectorAll('.page').forEach(x=>x.classList.toggle('on',x.id==='p-'+page));
-  if(page==='log')loadLog(); if(page==='rules')loadProcs(); if(page==='servers')renderServers();
+  if(page==='log')loadLog(); if(page==='rules'){loadProcs();loadInstalled()} if(page==='servers')renderServers();
 });
 
 /* ---- status ---- */
@@ -438,7 +449,34 @@ $('appsClear').onclick=()=>{
   if(!confirm(t('apps.confirm',cfg.apps.length)))return;
   cfg.apps=[];renderRules();saveCfg();
 };
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeAppsModal();$('shareClose').onclick()}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeAppsModal();closeInst();$('shareClose').onclick()}});
+
+/* ---- pick from the installed applications ---- */
+let inst=null;
+async function loadInstalled(){
+  if(inst!==null)return;
+  try{const r=await api('/api/installed');inst=r.ok?await r.json():[]}catch(e){inst=[]}
+  $('pickInstalled').style.display=inst.length?'':'none';
+}
+function renderInst(){
+  const q=$('instFilter').value.trim().toLowerCase();
+  const have=new Set(cfg.apps.map(a=>a.toLowerCase()));
+  const rows=(inst||[]).filter(a=>!q||a.label.toLowerCase().includes(q)||a.name.includes(q));
+  $('instList').innerHTML=rows.map(a=>{const on=have.has(a.name);
+    return '<div class="mitem"><span title="'+esc(a.path)+'">'+esc(a.label)+'</span><button class="btn sm'+(on?'':' pri')+'" data-n="'+esc(a.name)+'">'+esc(on?t('apps.remove'):t('btn.add'))+'</button></div>'}).join('')
+    ||'<div class="mut small" style="padding:10px">'+esc(t('apps.none'))+'</div>';
+}
+function closeInst(){$('instModal').classList.remove('on')}
+$('pickInstalled').onclick=()=>{$('instFilter').value='';$('instModal').classList.add('on');renderInst()};
+$('instClose').onclick=closeInst;$('instDone').onclick=closeInst;
+$('instModal').onclick=e=>{if(e.target.id==='instModal')closeInst()};
+$('instFilter').oninput=renderInst;
+$('instList').onclick=e=>{
+  const n=e.target.dataset.n; if(!n)return;
+  const i=cfg.apps.findIndex(a=>a.toLowerCase()===n);
+  if(i>=0){cfg.apps.splice(i,1);renderRules();saveCfg()}else addApp(n);
+  renderInst();
+};
 
 function renderRules(){
   if(!cfg)return;

@@ -53,6 +53,7 @@ func startAPI(e *Engine, listen string, secure bool) (*apiServer, string, error)
 	mux.HandleFunc("/api/state", a.guard(a.state))
 	mux.HandleFunc("/api/config", a.guard(a.config))
 	mux.HandleFunc("/api/processes", a.guard(a.processes))
+	mux.HandleFunc("/api/installed", a.guard(a.installed))
 	mux.HandleFunc("/api/servers", a.guard(a.servers))
 	mux.HandleFunc("/api/servers/delete", a.guard(a.serverDelete))
 	mux.HandleFunc("/api/servers/share", a.guard(a.serverShare))
@@ -154,6 +155,15 @@ func (a *apiServer) config(w http.ResponseWriter, r *http.Request) {
 func (a *apiServer) processes(w http.ResponseWriter, r *http.Request) {
 	list := a.e.procs.runningWithNetwork()
 	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+	writeJSON(w, list)
+}
+
+// installed lists the applications that are installed (empty where unsupported).
+func (a *apiServer) installed(w http.ResponseWriter, r *http.Request) {
+	list := installedApps()
+	if list == nil {
+		list = []installedApp{}
+	}
 	writeJSON(w, list)
 }
 
