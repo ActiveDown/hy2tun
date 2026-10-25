@@ -190,7 +190,7 @@ func (n *netConfig) apply(dnsServers []string) error {
 
 	// 5. DNS configuration via scutil
 	if len(dnsServers) > 0 {
-		applyDNS(dnsServers)
+		applyDNS(dnsServers, n.name)
 	}
 
 	return nil
@@ -227,8 +227,12 @@ func (n *netConfig) revert() {
 	run("ifconfig", n.name, "down")
 }
 
-func applyDNS(servers []string) {
-	script := fmt.Sprintf("d.init\nd.add ServerAddresses * %s\nd.add SupplementalMatchDomains * \"\"\nset State:/Network/Service/hy2tun/DNS\nset Setup:/Network/Service/hy2tun/DNS\n", strings.Join(servers, " "))
+// applyDNS publishes the tunnel resolvers. InterfaceName ties them to the TUN as
+// well: macOS network extensions (WireGuard, ...) resolve their endpoint names
+// scoped to what they consider the primary interface, which is the TUN while it
+// holds the default routes, and fail instantly when no resolver is scoped to it.
+func applyDNS(servers []string, ifName string) {
+	script := fmt.Sprintf("d.init\nd.add ServerAddresses * %s\nd.add SupplementalMatchDomains * \"\"\nd.add InterfaceName %s\nset State:/Network/Service/hy2tun/DNS\nset Setup:/Network/Service/hy2tun/DNS\n", strings.Join(servers, " "), ifName)
 	cmd := exec.Command("scutil")
 	cmd.Stdin = strings.NewReader(script)
 	cmd.Run()
