@@ -8,8 +8,12 @@ import (
 )
 
 func defaultDataDir() string {
+	sys := "/Library/Application Support/Hy2Tun"
+	if _, err := os.Stat(sys); err == nil {
+		return sys
+	}
 	if os.Geteuid() == 0 {
-		return "/Library/Application Support/Hy2Tun"
+		return sys
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

@@ -172,6 +172,9 @@ type gui struct {
 }
 
 func (g *gui) token() string {
+	if b, err := os.ReadFile("/Library/Application Support/Hy2Tun/token"); err == nil {
+		return strings.TrimSpace(string(b))
+	}
 	b, err := os.ReadFile(filepath.Join(g.dir, "token"))
 	if err != nil {
 		return ""

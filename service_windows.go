@@ -74,6 +74,10 @@ func cmdService(args []string) {
 	}
 }
 
+func tryElevateInstall() error {
+	return errors.New("not supported")
+}
+
 // requireAdmin continues only with administrator rights: otherwise the same
 // command is started again through the UAC prompt and this process exits.
 func requireAdmin() {

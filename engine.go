@@ -328,7 +328,12 @@ func (e *Engine) establish(srv Server) (s *session, err error) {
 		return nil, err
 	}
 	if !isAdmin() {
-		return nil, errors.New(tr("нужны права администратора (запустите службу или программу от администратора)", "administrator rights are required (run the service, or run the program as administrator)"))
+		if runtime.GOOS == "darwin" {
+			if err := tryElevateInstall(); err == nil {
+				return nil, errors.New(tr("Служба успешно установлена! Нажмите Connect ещё раз.", "Service installed! Click Connect again."))
+			}
+		}
+		return nil, errors.New(tr("нужны права администратора (запустите службу: sudo ./hy2tun install)", "administrator rights are required (install service: sudo ./hy2tun install)"))
 	}
 	serverIP, err := resolveServer(l.Host)
 	if err != nil {

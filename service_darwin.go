@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 )
@@ -79,6 +80,26 @@ func cmdInstall(args []string) {
 	dataDir := defaultDataDir()
 	os.MkdirAll(dataDir, 0o755)
 
+	// If user configured servers in their home directory, copy to system dataDir
+	var userDirs []string
+	if sudoUser := os.Getenv("SUDO_USER"); sudoUser != "" {
+		userDirs = append(userDirs, filepath.Join("/Users", sudoUser, "Library", "Application Support", "Hy2Tun"))
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		userDirs = append(userDirs, filepath.Join(home, "Library", "Application Support", "Hy2Tun"))
+	}
+	for _, uDir := range userDirs {
+		for _, f := range []string{"servers.json", "settings.json"} {
+			src := filepath.Join(uDir, f)
+			dst := filepath.Join(dataDir, f)
+			if _, err := os.Stat(dst); os.IsNotExist(err) {
+				if b, err := os.ReadFile(src); err == nil {
+					_ = os.WriteFile(dst, b, 0o644)
+				}
+			}
+		}
+	}
+
 	var extraArgs []string
 	for _, a := range args {
 		if a != "-q" && a != "--quiet" {
@@ -134,4 +155,15 @@ func cmdUninstall(args []string) {
 	_ = exec.Command("launchctl", "unload", "-w", plistPath).Run()
 	_ = os.Remove(plistPath)
 	fmt.Println(tr("Служба Hy2Tun остановлена и удалена.", "Hy2Tun service stopped and removed."))
+}
+
+func tryElevateInstall() error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	// Prompt with standard macOS Touch ID / password dialog
+	script := fmt.Sprintf(`do shell script "%s install" with administrator privileges`, exe)
+	cmd := exec.Command("osascript", "-e", script)
+	return cmd.Run()
 }
