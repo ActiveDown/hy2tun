@@ -4,6 +4,7 @@ package main
 
 // #include <libproc.h>
 // #include <unistd.h>
+// extern pid_t responsibility_get_pid_responsible_for_pid(pid_t);
 import "C"
 
 import (
@@ -76,6 +77,16 @@ func pidInfo(pid uint32) (ppid uint32, name string) {
 	return 0, ""
 }
 
+// responsiblePID is the application a helper process works for (the same
+// attribution Activity Monitor uses): Safari for its com.apple.WebKit.Networking
+// service, which launchd starts, so the parent chain alone never leads to Safari.
+func responsiblePID(pid uint32) uint32 {
+	if pid == 0 {
+		return 0
+	}
+	return uint32(C.responsibility_get_pid_responsible_for_pid(C.pid_t(pid)))
+}
+
 func (pt *procTable) pathOfLocked(pid uint32) string {
 	if e, ok := pt.paths[pid]; ok && time.Since(e.at) < time.Minute {
 		return e.path
@@ -91,6 +102,7 @@ func (pt *procTable) chain(pid uint32) []procRef {
 
 	var out []procRef
 	seen := map[uint32]bool{}
+	first := pid
 
 	for i := 0; i < 8 && pid != 0 && !seen[pid]; i++ {
 		seen[pid] = true
@@ -107,6 +119,23 @@ func (pt *procTable) chain(pid uint32) []procRef {
 			out = append(out, procRef{Name: name, Path: path})
 		}
 		pid = ppid
+	}
+	if rp := responsiblePID(first); rp != 0 && rp != first && !seen[rp] {
+		_, procName := pidInfo(rp)
+		path := pt.pathOfLocked(rp)
+		name := strings.ToLower(procName)
+		if path != "" {
+			name = strings.ToLower(filepath.Base(path))
+		}
+		if name != "" || path != "" {
+			// right after the process itself: it is the app that owns this traffic
+			ref := procRef{Name: name, Path: path}
+			if len(out) == 0 {
+				out = append(out, ref)
+			} else {
+				out = append(out[:1], append([]procRef{ref}, out[1:]...)...)
+			}
+		}
 	}
 	return out
 }
@@ -284,6 +313,18 @@ func (pt *procTable) runningWithNetwork() []runningProc {
 		counts[r.pid]++
 	}
 	pt.mu.Unlock()
+
+	// helpers count for the app they work for (Safari for WebKit.Networking), and
+	// that app is offered too even if it holds no sockets itself
+	owners := make(map[uint32]int)
+	for pid, n := range counts {
+		if rp := responsiblePID(pid); rp != 0 && rp != pid {
+			owners[rp] += n
+		}
+	}
+	for pid, n := range owners {
+		counts[pid] += n
+	}
 
 	agg := make(map[string]*runningProc)
 	for pid, n := range counts {
