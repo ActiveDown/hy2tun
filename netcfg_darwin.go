@@ -228,6 +228,13 @@ func (n *netConfig) revert() {
 	run("ifconfig", n.name, "down")
 }
 
+// dnsMatchOrder ranks our match-all resolver. Lower numbers are asked first:
+// other VPNs publish theirs around 101000-102000 (corporate names that only their
+// DNS knows), the primary resolver sits at 200000. Between the two, a connected
+// WireGuard/OpenVPN keeps resolving its own names while everything else still goes
+// through the tunnel instead of the router.
+const dnsMatchOrder = 150000
+
 // scutilSet runs a block of scutil commands.
 func scutilSet(script string) {
 	cmd := exec.Command("scutil")
@@ -257,8 +264,8 @@ func scopedResolverFor(ifName string) bool {
 // a resolver; if configd does not create one from the DNS entry alone, the TUN is
 // also published as a service with an address, which it does.
 func applyDNS(servers []string, ifName string) {
-	scutilSet(fmt.Sprintf("d.init\nd.add ServerAddresses * %s\nd.add SupplementalMatchDomains * \"\"\nd.add InterfaceName %s\nset State:/Network/Service/hy2tun/DNS\nset Setup:/Network/Service/hy2tun/DNS\n",
-		strings.Join(servers, " "), ifName))
+	scutilSet(fmt.Sprintf("d.init\nd.add ServerAddresses * %s\nd.add SupplementalMatchDomains * \"\"\nd.add SupplementalMatchOrders * # %d\nd.add InterfaceName %s\nset State:/Network/Service/hy2tun/DNS\nset Setup:/Network/Service/hy2tun/DNS\n",
+		strings.Join(servers, " "), dnsMatchOrder, ifName))
 	if scopedResolverFor(ifName) {
 		log.Printf("dns: resolver scoped to %s is active", ifName)
 		return
