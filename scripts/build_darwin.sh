@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 
-VERSION="${1:-0.6.0}"
+VERSION="${1:-0.7.0}"
 OUT_DIR="${2:-dist}"
 mkdir -p "${OUT_DIR}"
 
@@ -85,10 +85,27 @@ cat << 'PLIST' > "${APP_BUNDLE}/Contents/Info.plist"
 PLIST
 sed -i '' "s/VERSION/${VERSION}/g" "${APP_BUNDLE}/Contents/Info.plist"
 
+# Ad-hoc sign the bundle (no Developer ID): keeps the seal consistent, so the app,
+# the installer payload and the copy the installer puts in /usr/local/bin are identical.
+codesign --force --deep --sign - "${APP_BUNDLE}" >/dev/null
+
 # Copy Hy2Tun.app to repository root for easy double-clicking in Finder
 rm -rf "${ROOT_DIR}/Hy2Tun.app"
 cp -R "${APP_BUNDLE}" "${ROOT_DIR}/Hy2Tun.app"
-cp "${UNIVERSAL_BIN}" "${ROOT_DIR}/hy2tun"
+cp "${APP_BUNDLE}/Contents/MacOS/hy2tun" "${ROOT_DIR}/hy2tun"
+cp "${APP_BUNDLE}/Contents/MacOS/hy2tun" "${UNIVERSAL_BIN}"
+
+# Installer: puts Hy2Tun.app into /Applications and installs the background service
+PKG="${OUT_DIR}/Hy2Tun-${VERSION}-macos-installer.pkg"
+echo "Creating ${PKG}..."
+PKG_ROOT="$(mktemp -d /tmp/hy2tun_pkgroot.XXXXXX)"
+PKG_TMP="$(mktemp -d /tmp/hy2tun_pkg.XXXXXX)"
+mkdir -p "${PKG_ROOT}/Applications"
+cp -R "${APP_BUNDLE}" "${PKG_ROOT}/Applications/Hy2Tun.app"
+pkgbuild --root "${PKG_ROOT}" --identifier com.activedown.hy2tun.pkg --version "${VERSION}" \
+    --install-location / --scripts "${ROOT_DIR}/packaging/macos/scripts" "${PKG_TMP}/component.pkg" >/dev/null
+productbuild --package "${PKG_TMP}/component.pkg" "${PKG}" >/dev/null
+rm -rf "${PKG_ROOT}" "${PKG_TMP}"
 
 # Package artifacts
 TARBALL="${OUT_DIR}/Hy2Tun-${VERSION}-macos-universal.tar.gz"
@@ -101,8 +118,7 @@ echo "Packaging ${ZIP_APP}..."
 
 echo "Calculating SHA256..."
 if command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 "${TARBALL}" > "${TARBALL}.sha256"
-    shasum -a 256 "${ZIP_APP}" > "${ZIP_APP}.sha256"
+    (cd "${OUT_DIR}" && shasum -a 256 "$(basename "${PKG}")" "$(basename "${ZIP_APP}")" "$(basename "${TARBALL}")" > "SHA256SUMS-macos.txt")
 fi
 
 echo "Done! Artifacts created in ${OUT_DIR}/ and root directory:"

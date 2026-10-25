@@ -57,9 +57,12 @@ Requires Go 1.27+.
 # Build binary directly:
 go build -trimpath -ldflags "-s -w" -o hy2tun .
 
-# Or build a Universal release (Apple Silicon + Intel) with packaging:
-./scripts/build_darwin.sh 0.6.0
+# Or build a Universal release (Apple Silicon + Intel): Hy2Tun.app, .zip, .tar.gz and the .pkg installer in dist/
+./scripts/build_darwin.sh 0.7.0
 ```
+
+The `.pkg` installs `Hy2Tun.app` into `/Applications` and the launchd service (`packaging/macos/scripts/postinstall`).
+It is ad-hoc signed, not notarized: open it with right click → Open.
 
 ### Windows
 
@@ -118,7 +121,7 @@ hy2tun.exe run -link hy2://password@host:443?sni=example.com#Name
 
 The panel address with its access token is printed to the log (default `127.0.0.1:7878`).
 
-macOS service installation (launchd daemon):
+macOS service installation (launchd daemon; the `.pkg` installer does this for you):
 ```bash
 sudo ./hy2tun install
 sudo ./hy2tun uninstall

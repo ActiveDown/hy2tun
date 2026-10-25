@@ -1,0 +1,16 @@
+#!/bin/bash
+# Runs as root after Hy2Tun.app has been copied to /Applications: installs the
+# launchd daemon (binary copy in /usr/local/bin, plist, servers migrated from the
+# user's folder) and opens the app for the logged-in user.
+APP="/Applications/Hy2Tun.app"
+BIN="$APP/Contents/MacOS/hy2tun"
+
+[ -x "$BIN" ] || { echo "Hy2Tun.app is missing"; exit 1; }
+"$BIN" install -q || exit 1
+
+CONSOLE_USER=$(stat -f %Su /dev/console 2>/dev/null)
+if [ -n "$CONSOLE_USER" ] && [ "$CONSOLE_USER" != "root" ]; then
+  USER_ID=$(id -u "$CONSOLE_USER")
+  /bin/launchctl asuser "$USER_ID" /usr/bin/sudo -u "$CONSOLE_USER" /usr/bin/open "$APP" >/dev/null 2>&1 || true
+fi
+exit 0
