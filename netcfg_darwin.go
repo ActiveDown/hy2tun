@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -227,20 +228,47 @@ func (n *netConfig) revert() {
 	run("ifconfig", n.name, "down")
 }
 
-// applyDNS publishes the tunnel resolvers. InterfaceName ties them to the TUN as
-// well: macOS network extensions (WireGuard, ...) resolve their endpoint names
-// scoped to what they consider the primary interface, which is the TUN while it
-// holds the default routes, and fail instantly when no resolver is scoped to it.
-func applyDNS(servers []string, ifName string) {
-	script := fmt.Sprintf("d.init\nd.add ServerAddresses * %s\nd.add SupplementalMatchDomains * \"\"\nd.add InterfaceName %s\nset State:/Network/Service/hy2tun/DNS\nset Setup:/Network/Service/hy2tun/DNS\n", strings.Join(servers, " "), ifName)
+// scutilSet runs a block of scutil commands.
+func scutilSet(script string) {
 	cmd := exec.Command("scutil")
 	cmd.Stdin = strings.NewReader(script)
 	cmd.Run()
 }
 
+// scopedResolverFor reports whether the system DNS configuration has a resolver
+// scoped to the given interface (the "for scoped queries" section).
+func scopedResolverFor(ifName string) bool {
+	out, err := exec.Command("scutil", "--dns").Output()
+	if err != nil {
+		return false
+	}
+	text := string(out)
+	i := strings.Index(text, "for scoped queries")
+	if i < 0 {
+		return false
+	}
+	return strings.Contains(text[i:], "("+ifName+")")
+}
+
+// applyDNS publishes the tunnel resolvers. macOS network extensions (WireGuard,
+// ...) treat the TUN as the primary interface while it holds the default routes
+// and resolve their endpoint names scoped to it; without a resolver scoped to the
+// TUN that fails instantly ("DNS resolution failed"). InterfaceName asks for such
+// a resolver; if configd does not create one from the DNS entry alone, the TUN is
+// also published as a service with an address, which it does.
+func applyDNS(servers []string, ifName string) {
+	scutilSet(fmt.Sprintf("d.init\nd.add ServerAddresses * %s\nd.add SupplementalMatchDomains * \"\"\nd.add InterfaceName %s\nset State:/Network/Service/hy2tun/DNS\nset Setup:/Network/Service/hy2tun/DNS\n",
+		strings.Join(servers, " "), ifName))
+	if scopedResolverFor(ifName) {
+		log.Printf("dns: resolver scoped to %s is active", ifName)
+		return
+	}
+	scutilSet(fmt.Sprintf("d.init\nd.add Addresses * %s\nd.add SubnetMasks * %s\nd.add DestAddresses * %s\nd.add InterfaceName %s\nset State:/Network/Service/hy2tun/IPv4\n",
+		tunV4Addr, tunV4Mask, tunV4GW, ifName))
+	time.Sleep(300 * time.Millisecond)
+	log.Printf("dns: scoped resolver after publishing the TUN service: %v", scopedResolverFor(ifName))
+}
+
 func revertDNS() {
-	script := "remove State:/Network/Service/hy2tun/DNS\nremove Setup:/Network/Service/hy2tun/DNS\n"
-	cmd := exec.Command("scutil")
-	cmd.Stdin = strings.NewReader(script)
-	cmd.Run()
+	scutilSet("remove State:/Network/Service/hy2tun/DNS\nremove Setup:/Network/Service/hy2tun/DNS\nremove State:/Network/Service/hy2tun/IPv4\n")
 }
