@@ -11,6 +11,7 @@ token
 # build output
 *.exe
 hy2tun
+*.app/
 *.dll
 *.test
 /release/

@@ -9,6 +9,8 @@ import (
 	"image"
 	"image/color"
 	"os"
+	"os/exec"
+	"path/filepath"
 
 	"github.com/ActiveDown/hy2tun/internal/logo"
 )
@@ -70,5 +72,31 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	fmt.Println("assets/app.ico and assets/logo.png written")
+
+	if iconutilPath, err := exec.LookPath("iconutil"); err == nil {
+		tmpDir, err := os.MkdirTemp("", "hy2tun_icons_*.iconset")
+		if err == nil {
+			defer os.RemoveAll(tmpDir)
+			sizes := []struct {
+				name string
+				size int
+			}{
+				{"icon_16x16.png", 16},
+				{"icon_16x16@2x.png", 32},
+				{"icon_32x32.png", 32},
+				{"icon_32x32@2x.png", 64},
+				{"icon_128x128.png", 128},
+				{"icon_128x128@2x.png", 256},
+				{"icon_256x256.png", 256},
+				{"icon_256x256@2x.png", 512},
+				{"icon_512x512.png", 512},
+				{"icon_512x512@2x.png", 1024},
+			}
+			for _, s := range sizes {
+				os.WriteFile(filepath.Join(tmpDir, s.name), logo.PNG(logo.App(s.size)), 0o644)
+			}
+			exec.Command(iconutilPath, "-c", "icns", tmpDir, "-o", "assets/AppIcon.icns").Run()
+		}
+	}
+	fmt.Println("assets/app.ico, assets/logo.png and assets/AppIcon.icns written")
 }

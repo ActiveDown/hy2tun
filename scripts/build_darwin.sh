@@ -12,6 +12,12 @@ mkdir -p "${OUT_DIR}"
 
 echo "Building Hy2Tun ${VERSION} for macOS (Universal: arm64 + x86_64)..."
 
+# Ensure AppIcon.icns exists
+if [ ! -f "assets/AppIcon.icns" ]; then
+    echo "Generating icons..."
+    go run ./tools/genicon
+fi
+
 LDFLAGS="-s -w -X main.appVersion=${VERSION}"
 
 TMP_ARM64="$(mktemp /tmp/hy2tun_arm64.XXXXXX)"
@@ -36,6 +42,9 @@ rm -rf "${APP_BUNDLE}"
 mkdir -p "${APP_BUNDLE}/Contents/MacOS"
 mkdir -p "${APP_BUNDLE}/Contents/Resources"
 cp "${UNIVERSAL_BIN}" "${APP_BUNDLE}/Contents/MacOS/hy2tun"
+if [ -f "assets/AppIcon.icns" ]; then
+    cp "assets/AppIcon.icns" "${APP_BUNDLE}/Contents/Resources/AppIcon.icns"
+fi
 
 cat << 'PLIST' > "${APP_BUNDLE}/Contents/Info.plist"
 <?xml version="1.0" encoding="UTF-8"?>
@@ -56,14 +65,30 @@ cat << 'PLIST' > "${APP_BUNDLE}/Contents/Info.plist"
     <string>hy2tun</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>
     <string>11.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSRequiresAquaSystemAppearance</key>
+    <false/>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
 </dict>
 </plist>
 PLIST
 sed -i '' "s/VERSION/${VERSION}/g" "${APP_BUNDLE}/Contents/Info.plist"
+
+# Copy Hy2Tun.app to repository root for easy double-clicking in Finder
+rm -rf "${ROOT_DIR}/Hy2Tun.app"
+cp -R "${APP_BUNDLE}" "${ROOT_DIR}/Hy2Tun.app"
+cp "${UNIVERSAL_BIN}" "${ROOT_DIR}/hy2tun"
 
 # Package artifacts
 TARBALL="${OUT_DIR}/Hy2Tun-${VERSION}-macos-universal.tar.gz"
@@ -80,5 +105,5 @@ if command -v shasum >/dev/null 2>&1; then
     shasum -a 256 "${ZIP_APP}" > "${ZIP_APP}.sha256"
 fi
 
-echo "Done! Artifacts created in ${OUT_DIR}/:"
+echo "Done! Artifacts created in ${OUT_DIR}/ and root directory:"
 ls -lh "${OUT_DIR}/"

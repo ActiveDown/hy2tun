@@ -19,16 +19,35 @@ package main
 }
 @end
 
+@interface Hy2TunNavDelegate : NSObject <WKNavigationDelegate>
+@end
+
+@implementation Hy2TunNavDelegate
+- (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation {
+    NSLog(@"[Hy2Tun WebKit] didStartProvisionalNavigation: %@", webView.URL);
+}
+- (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error {
+    NSLog(@"[Hy2Tun WebKit] didFailProvisionalNavigation error: %@", error);
+}
+- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
+    NSLog(@"[Hy2Tun WebKit] didFinishNavigation: %@", webView.URL);
+}
+- (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error {
+    NSLog(@"[Hy2Tun WebKit] didFailNavigation error: %@", error);
+}
+@end
+
 static NSWindow *globalWindow = nil;
 static WKWebView *globalWebView = nil;
-static Hy2TunWinDelegate *globalDelegate = nil;
+static Hy2TunWinDelegate *globalWinDelegate = nil;
+static Hy2TunNavDelegate *globalNavDelegate = nil;
 
 void setupMacAppMenu(const void *iconBytes, int iconLen) {
+    NSData *data = (iconBytes != NULL && iconLen > 0) ? [NSData dataWithBytes:iconBytes length:iconLen] : nil;
     dispatch_async(dispatch_get_main_queue(), ^{
         [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
 
-        if (iconBytes != NULL && iconLen > 0) {
-            NSData *data = [NSData dataWithBytes:iconBytes length:iconLen];
+        if (data != nil) {
             NSImage *img = [[NSImage alloc] initWithData:data];
             if (img != nil) {
                 [NSApp setApplicationIconImage:img];
@@ -57,6 +76,7 @@ void setupMacAppMenu(const void *iconBytes, int iconLen) {
 }
 
 void showNativeWindow(const char *urlStr) {
+    NSString *nsUrl = (urlStr != NULL && strlen(urlStr) > 0) ? [NSString stringWithUTF8String:urlStr] : nil;
     dispatch_async(dispatch_get_main_queue(), ^{
         if (globalWindow == nil) {
             NSRect frame = NSMakeRect(0, 0, 460, 800);
@@ -70,20 +90,32 @@ void showNativeWindow(const char *urlStr) {
             [globalWindow setAppearance:[NSAppearance appearanceNamed:NSAppearanceNameDarkAqua]];
             [globalWindow setBackgroundColor:[NSColor colorWithRed:14.0/255.0 green:16.0/255.0 blue:21.0/255.0 alpha:1.0]];
 
-            globalDelegate = [[Hy2TunWinDelegate alloc] init];
-            [globalWindow setDelegate:globalDelegate];
+            globalWinDelegate = [[Hy2TunWinDelegate alloc] init];
+            [globalWindow setDelegate:globalWinDelegate];
 
             WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];
+            #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 130300
+            if (@available(macOS 13.3, *)) {
+                [config.preferences setValue:@YES forKey:@"developerExtrasEnabled"];
+            }
+            #endif
+
             globalWebView = [[WKWebView alloc] initWithFrame:[[globalWindow contentView] bounds] configuration:config];
             [globalWebView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
             [globalWebView setValue:@NO forKey:@"drawsBackground"];
+
+            globalNavDelegate = [[Hy2TunNavDelegate alloc] init];
+            [globalWebView setNavigationDelegate:globalNavDelegate];
+
             [[globalWindow contentView] addSubview:globalWebView];
         }
 
-        if (urlStr != NULL && strlen(urlStr) > 0) {
-            NSString *nsUrl = [NSString stringWithUTF8String:urlStr];
-            NSURLRequest *req = [NSURLRequest requestWithURL:[NSURL URLWithString:nsUrl]];
-            [globalWebView loadRequest:req];
+        if (nsUrl != nil && [nsUrl length] > 0) {
+            NSURL *url = [NSURL URLWithString:nsUrl];
+            if (url != nil) {
+                NSURLRequest *req = [NSURLRequest requestWithURL:url];
+                [globalWebView loadRequest:req];
+            }
         }
 
         [globalWindow makeKeyAndOrderFront:nil];
@@ -92,10 +124,10 @@ void showNativeWindow(const char *urlStr) {
 }
 
 void loadNativeHTML(const char *htmlStr) {
+    NSString *nsHtml = (htmlStr != NULL) ? [NSString stringWithUTF8String:htmlStr] : nil;
     dispatch_async(dispatch_get_main_queue(), ^{
-        if (globalWebView != nil && htmlStr != NULL) {
-            NSString *nsHtml = [NSString stringWithUTF8String:htmlStr];
-            [globalWebView loadHTMLString:nsHtml baseURL:nil];
+        if (globalWebView != nil && nsHtml != nil) {
+            [globalWebView loadHTMLString:nsHtml baseURL:[NSURL URLWithString:@"http://127.0.0.1:7878/"]];
         }
     });
 }
@@ -173,7 +205,10 @@ func (g *gui) serviceUp() bool {
 	return err == nil
 }
 
-func (g *gui) pageURL() string { return "http://" + g.apiAddr + "/?t=" + g.token() }
+func (g *gui) pageURL() string {
+	t := g.token()
+	return "http://" + g.apiAddr + "/?t=" + t
+}
 
 func waitingHTML() string {
 	title := tr("Служба Hy2Tun запускается...", "Hy2Tun service is starting...")
@@ -189,31 +224,10 @@ func (g *gui) openWindow() {
 	g.windowOn = true
 	g.mu.Unlock()
 
-	if g.serviceUp() {
-		cURL := C.CString(g.pageURL())
-		defer C.free(unsafe.Pointer(cURL))
-		C.showNativeWindow(cURL)
-	} else {
-		cEmpty := C.CString("")
-		defer C.free(unsafe.Pointer(cEmpty))
-		C.showNativeWindow(cEmpty)
-
-		cHTML := C.CString(waitingHTML())
-		defer C.free(unsafe.Pointer(cHTML))
-		C.loadNativeHTML(cHTML)
-
-		go func() {
-			for i := 0; i < 600; i++ {
-				time.Sleep(500 * time.Millisecond)
-				if g.serviceUp() {
-					cURL := C.CString(g.pageURL())
-					C.showNativeWindow(cURL)
-					C.free(unsafe.Pointer(cURL))
-					return
-				}
-			}
-		}()
-	}
+	url := g.pageURL()
+	cURL := C.CString(url)
+	defer C.free(unsafe.Pointer(cURL))
+	C.showNativeWindow(cURL)
 }
 
 func msgBox(title, text string) {
@@ -242,7 +256,7 @@ var (
 )
 
 func (g *gui) onReady() {
-	// Setup App Icon and Cocoa Edit menu
+	// Setup App Icon and Cocoa Edit menu (Cmd+C / Cmd+V support)
 	appIconPNG := logo.PNG(logo.App(128))
 	C.setupMacAppMenu(unsafe.Pointer(&appIconPNG[0]), C.int(len(appIconPNG)))
 
@@ -387,6 +401,8 @@ func cmdGUI(args []string) {
 			defer api.close()
 			log.Printf("started local Hy2Tun engine at %s", c.ui)
 		}
+		// Brief pause to allow listener to accept requests
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	trayOnly := false
@@ -399,7 +415,7 @@ func cmdGUI(args []string) {
 
 	if !trayOnly {
 		go func() {
-			time.Sleep(300 * time.Millisecond)
+			time.Sleep(150 * time.Millisecond)
 			g.openWindow()
 		}()
 	}

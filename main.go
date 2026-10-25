@@ -135,6 +135,13 @@ func main() {
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		cmd, args = args[0], args[1:]
 	} else if len(args) == 0 && runtime.GOOS == "darwin" && !isAdmin() {
+		if exe, err := os.Executable(); err == nil && !strings.Contains(exe, "Hy2Tun.app") {
+			appPath := filepath.Join(filepath.Dir(exe), "Hy2Tun.app")
+			if _, err := os.Stat(appPath); err == nil && os.Getenv("HY2TUN_NO_DETACH") != "1" {
+				exec.Command("open", appPath).Start()
+				os.Exit(0)
+			}
+		}
 		cmd = "gui"
 	}
 	switch cmd {
