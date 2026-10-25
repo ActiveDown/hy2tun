@@ -54,3 +54,8 @@ func resolveDataDir(flagVal string) (dir string, portable bool) {
 	}
 	return defaultDataDir(), false
 }
+
+// tokenDirs lists the folders where a running service may keep its control token.
+func tokenDirs(dir string) []string {
+	return append([]string{defaultDataDir()}, dir)
+}

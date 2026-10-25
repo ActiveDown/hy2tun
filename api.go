@@ -61,6 +61,7 @@ func startAPI(e *Engine, listen string, secure bool) (*apiServer, string, error)
 	mux.HandleFunc("/api/connect", a.guard(a.connect))
 	mux.HandleFunc("/api/disconnect", a.guard(a.disconnect))
 	mux.HandleFunc("/api/app", a.guard(a.app))
+	mux.HandleFunc("/api/diag", a.guard(a.diag))
 	mux.HandleFunc("/api/log", a.guard(a.logTail))
 	mux.HandleFunc("/api/proxy_ru", a.guard(a.setProxyRU))
 	a.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
@@ -125,6 +126,7 @@ func (a *apiServer) state(w http.ResponseWriter, r *http.Request) {
 		"auto":    a.e.store.autoConnect(),
 		"lang":    lang(),
 		"build":   selfBuildID(),
+		"debug":   a.e.store.debug(),
 	})
 }
 
@@ -272,12 +274,17 @@ func (a *apiServer) app(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		AutoConnect *bool   `json:"auto_connect"`
 		Lang        *string `json:"lang"`
+		Debug       *bool   `json:"debug"`
 	}
 	if !readJSON(w, r, &body, 1024) {
 		return
 	}
 	if body.AutoConnect != nil {
 		a.e.store.setAutoConnect(*body.AutoConnect)
+	}
+	if body.Debug != nil {
+		a.e.store.setDebug(*body.Debug)
+		log.Printf("setting changed: detailed logging = %v (applies on the next connect)", *body.Debug)
 	}
 	if body.Lang != nil {
 		if l := normalizeLang(*body.Lang); l != "" {

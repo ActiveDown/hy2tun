@@ -87,7 +87,15 @@ func (n *netConfig) hostRouteArgs(verb string) []string {
 	return args
 }
 
+// removeStaleRoutes deletes the tunnel routes that older versions stored as
+// persistent (netsh's default): they pile up in the registry, one set per connect.
+func removeStaleRoutes() {
+	ps(`foreach ($r in @(@('0.0.0.0/1','` + tunV4GW + `'),@('128.0.0.0/1','` + tunV4GW + `'),@('::/1','` + tunV6GW + `'),@('8000::/1','` + tunV6GW + `'))) {` +
+		` Remove-NetRoute -DestinationPrefix $r[0] -NextHop $r[1] -PolicyStore PersistentStore -Confirm:$false -ErrorAction SilentlyContinue }`)
+}
+
 func (n *netConfig) apply(dnsServers []string) error {
+	removeStaleRoutes()
 	// wait until the adapter is visible to netsh
 	var err error
 	for i := 0; i < 20; i++ {
@@ -111,10 +119,10 @@ func (n *netConfig) apply(dnsServers []string) error {
 	n.applied = true
 
 	steps := [][]string{
-		{"interface", "ipv4", "set", "address", "name=" + n.name, "source=static", "address=" + tunV4Addr, "mask=" + tunV4Mask},
-		{"interface", "ipv4", "set", "interface", n.name, "metric=1"},
-		{"interface", "ipv4", "add", "route", "0.0.0.0/1", n.name, tunV4GW, "metric=1"},
-		{"interface", "ipv4", "add", "route", "128.0.0.0/1", n.name, tunV4GW, "metric=1"},
+		{"interface", "ipv4", "set", "address", "name=" + n.name, "source=static", "address=" + tunV4Addr, "mask=" + tunV4Mask, "store=active"},
+		{"interface", "ipv4", "set", "interface", n.name, "metric=1", "store=active"},
+		{"interface", "ipv4", "add", "route", "0.0.0.0/1", n.name, tunV4GW, "metric=1", "store=active"},
+		{"interface", "ipv4", "add", "route", "128.0.0.0/1", n.name, tunV4GW, "metric=1", "store=active"},
 	}
 	for _, s := range steps {
 		if out, err := run("netsh", s...); err != nil {
@@ -135,9 +143,9 @@ func (n *netConfig) apply(dnsServers []string) error {
 
 	// IPv6: capture it too, otherwise v6 traffic would bypass the tunnel.
 	v6 := [][]string{
-		{"interface", "ipv6", "set", "address", "interface=" + n.name, "address=" + tunV6Addr},
-		{"interface", "ipv6", "add", "route", "::/1", n.name, tunV6GW, "metric=1"},
-		{"interface", "ipv6", "add", "route", "8000::/1", n.name, tunV6GW, "metric=1"},
+		{"interface", "ipv6", "set", "address", "interface=" + n.name, "address=" + tunV6Addr, "store=active"},
+		{"interface", "ipv6", "add", "route", "::/1", n.name, tunV6GW, "metric=1", "store=active"},
+		{"interface", "ipv6", "add", "route", "8000::/1", n.name, tunV6GW, "metric=1", "store=active"},
 	}
 	for _, s := range v6 {
 		if out, err := run("netsh", s...); err != nil {

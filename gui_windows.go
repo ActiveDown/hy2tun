@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -122,6 +123,12 @@ func (g *gui) openWindow() {
 		}
 		defer w.Destroy()
 		winui.ApplyTheme(w.Window(), winui.SystemTheme())
+		// the diagnostics page asks to show the saved file in Explorer
+		w.Bind("hy2Reveal", func(p string) {
+			if p = filepath.Clean(p); strings.EqualFold(filepath.Ext(p), ".zip") && strings.Contains(strings.ToLower(p), `\diagnostics\`) {
+				exec.Command("explorer.exe", "/select,"+p).Start()
+			}
+		})
 		w.SetSize(460, 800, webview2.HintNone)
 		if g.serviceUp() {
 			w.Navigate(g.pageURL())

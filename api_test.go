@@ -1,6 +1,8 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -259,4 +261,39 @@ func TestLanguageDefaultsToEnglish(t *testing.T) {
 	}
 	// garbage is ignored
 	h.do("POST", "/api/app", `{"lang":"xx"}`)
+}
+
+func TestDiagBundleOffline(t *testing.T) {
+	dir := t.TempDir()
+	link := "hy2://supersecret@example.com:443?sni=example.com#Test"
+	os.WriteFile(dir+"/servers.json", []byte(`{"servers":[{"id":"a1","name":"Test","link":"`+link+`"}],"last":"a1"}`), 0o600)
+	os.WriteFile(dir+"/hy2tun.log", []byte("connecting "+link+"\nok\n"), 0o600)
+	data, err := buildDiag(nil, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var all strings.Builder
+	names := map[string]bool{}
+	for _, f := range zr.File {
+		names[f.Name] = true
+		rc, _ := f.Open()
+		b, _ := io.ReadAll(rc)
+		rc.Close()
+		all.Write(b)
+	}
+	for _, n := range []string{"hy2tun-diag/README.txt", "hy2tun-diag/summary.json", "hy2tun-diag/servers.txt", "hy2tun-diag/log-current.txt", "hy2tun-diag/selftest.txt"} {
+		if !names[n] {
+			t.Errorf("missing %s", n)
+		}
+	}
+	if strings.Contains(all.String(), "supersecret") {
+		t.Error("the server password leaked into the bundle")
+	}
+	if !strings.Contains(all.String(), "example.com:443") {
+		t.Error("server host missing from servers.txt")
+	}
 }

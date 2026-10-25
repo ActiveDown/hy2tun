@@ -35,7 +35,8 @@ type storeData struct {
 	Servers     []Server `json:"servers"`
 	Last        string   `json:"last"`
 	AutoConnect bool     `json:"auto_connect"`
-	Lang        string   `json:"lang,omitempty"` // "en" (default) or "ru"
+	Lang        string   `json:"lang,omitempty"`  // "en" (default) or "ru"
+	Debug       bool     `json:"debug,omitempty"` // detailed flow logging (next connect)
 }
 
 type serverStore struct {
@@ -182,6 +183,19 @@ func (s *serverStore) getLang() string {
 func (s *serverStore) setLangPref(l string) {
 	s.mu.Lock()
 	s.d.Lang = l
+	s.saveLocked()
+	s.mu.Unlock()
+}
+
+func (s *serverStore) debug() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.d.Debug
+}
+
+func (s *serverStore) setDebug(on bool) {
+	s.mu.Lock()
+	s.d.Debug = on
 	s.saveLocked()
 	s.mu.Unlock()
 }

@@ -178,3 +178,10 @@ func (e *Engine) firewallLoop() {
 		}
 	}
 }
+
+// firewallInfo describes the WFP policy for the diagnostics bundle.
+func (e *Engine) firewallInfo() string {
+	e.fw.mu.Lock()
+	defer e.fw.mu.Unlock()
+	return fmt.Sprintf("applied=%q last error=%q active=%v", e.fw.sig, e.fw.lastErr, wfp.Active())
+}

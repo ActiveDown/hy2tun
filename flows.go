@@ -135,9 +135,7 @@ func (t *tunnel) handleTCP(req *tcp.ForwarderRequest) {
 		}
 		if err != nil {
 			t.tcpFail.Add(1)
-			if t.verbose {
-				log.Printf("tcp %s [%s] {%s} %s: %v", dst, name, pn, path, err)
-			}
+			t.failf("tcp %s [%s] {%s} via %s failed: %v", dst, name, pn, path, err)
 			return
 		}
 		defer remote.Close()
@@ -339,9 +337,7 @@ func (t *tunnel) handleUDP(req *udp.ForwarderRequest) {
 		} else {
 			hu, err := t.hc.UDP()
 			if err != nil {
-				if t.verbose {
-					log.Printf("udp %s: %v", dst, err)
-				}
+				t.failf("udp %s via tunnel failed: %v", dst, err)
 				return
 			}
 			up = &hyPath{c: hu, dst: dst}

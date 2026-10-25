@@ -8,6 +8,7 @@
 //	hy2tun uninstall        stop + remove the service (administrator)
 //	hy2tun gui              desktop window + tray icon (normal user)
 //	hy2tun dry [flags]      connect to the server and exit (no TUN)
+//	hy2tun diag [file.zip]  collect a diagnostics bundle (logs, network state, live test)
 package main
 
 import (
@@ -21,12 +22,13 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
 
 // appVersion is overridden at build time: -ldflags "-X main.appVersion=1.2.3"
-var appVersion = "0.7.0"
+var appVersion = "0.7.1"
 
 type commonFlags struct {
 	data      string
@@ -107,17 +109,65 @@ func migrateLegacyLink(e *Engine) {
 	}
 }
 
+// rotatingFile is the log file with a size cap: past maxLogSize it becomes
+// <name>.old and a new file is started, so detailed logging cannot fill the disk.
+type rotatingFile struct {
+	mu   sync.Mutex
+	path string
+	f    *os.File
+	size int64
+}
+
+const maxLogSize = 8 << 20
+
+func openRotating(path string) (*rotatingFile, error) {
+	r := &rotatingFile{path: path}
+	if st, err := os.Stat(path); err == nil && st.Size() > maxLogSize/2 {
+		os.Rename(path, path+".old")
+	}
+	return r, r.open()
+}
+
+func (r *rotatingFile) open() error {
+	f, err := os.OpenFile(r.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return err
+	}
+	r.f = f
+	if st, err := f.Stat(); err == nil {
+		r.size = st.Size()
+	}
+	return nil
+}
+
+func (r *rotatingFile) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.size+int64(len(p)) > maxLogSize {
+		r.f.Close()
+		os.Rename(r.path, r.path+".old")
+		if err := r.open(); err != nil {
+			return len(p), nil
+		}
+	}
+	n, err := r.f.Write(p)
+	r.size += int64(n)
+	return n, err
+}
+
+func (r *rotatingFile) Close() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.f.Close()
+}
+
 func setupLogging(dir string, toFile bool) (*ringLog, func()) {
 	ring := newRingLog(500)
 	var w io.Writer = ring
 	closeFn := func() {}
 	if toFile {
 		os.MkdirAll(dir, 0o755)
-		p := filepath.Join(dir, "hy2tun.log")
-		if st, err := os.Stat(p); err == nil && st.Size() > 5<<20 {
-			os.Rename(p, p+".old")
-		}
-		if f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil {
+		if f, err := openRotating(filepath.Join(dir, "hy2tun.log")); err == nil {
 			w = io.MultiWriter(ring, f)
 			closeFn = func() { f.Close() }
 		}
@@ -159,6 +209,8 @@ func main() {
 		cmdUninstall(args)
 	case "gui":
 		cmdGUI(args)
+	case "diag":
+		cmdDiag(args)
 	case "version":
 		fmt.Println("hy2tun", appVersion)
 	default:

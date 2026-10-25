@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sync/atomic"
+	"time"
 
 	"github.com/apernet/hysteria/core/v2/client"
 	"golang.zx2c4.com/wireguard/tun"
@@ -38,6 +39,8 @@ type tunnel struct {
 	procs         *procTable
 	flows         *flowSet
 	directDNSAddr string
+
+	failLast, failSkipped atomic.Int64
 
 	tcpFlows, udpFlows atomic.Int64
 	tcpFail            atomic.Int64
@@ -145,6 +148,22 @@ func (t *tunnel) pumpOut() {
 		}
 		view.Release()
 	}
+}
+
+// failf logs a failed flow even without detailed logging, at most twice a second
+// (a dead tunnel would otherwise flood the log); the suppressed count is appended.
+func (t *tunnel) failf(format string, args ...any) {
+	now := time.Now().UnixNano()
+	if now-t.failLast.Load() < int64(500*time.Millisecond) {
+		t.failSkipped.Add(1)
+		return
+	}
+	t.failLast.Store(now)
+	msg := fmt.Sprintf(format, args...)
+	if n := t.failSkipped.Swap(0); n > 0 {
+		msg += fmt.Sprintf(" (+%d more failures suppressed)", n)
+	}
+	log.Print(msg)
 }
 
 func (t *tunnel) close() {

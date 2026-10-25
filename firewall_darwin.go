@@ -16,3 +16,5 @@ func (e *Engine) applyFirewall() {}
 func (e *Engine) firewallLoop() {
 	<-e.quit
 }
+
+func (e *Engine) firewallInfo() string { return "not used on macOS" }

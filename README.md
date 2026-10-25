@@ -132,7 +132,14 @@ Desktop Tray / GUI:
 ./hy2tun gui
 ```
 
-Other commands: `hy2tun service | install | uninstall | gui | api | dry | version`.
+Other commands: `hy2tun service | install | uninstall | gui | api | dry | diag | version`.
+
+### Diagnostics
+
+If some sites stop working: Log tab → turn on **Detailed logging**, reconnect, reproduce the problem, then press
+**Save diagnostics** (or run `hy2tun diag`). The resulting `.zip` has the logs, settings, the machine's network state and a
+live test of several sites over every path; server passwords are not included. Files are kept in
+`<data dir>/diagnostics` (`C:\ProgramData\Hy2Tun\diagnostics`, `/Library/Application Support/Hy2Tun/diagnostics`).
 
 ## Tests
 

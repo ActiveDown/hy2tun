@@ -416,7 +416,7 @@ func (e *Engine) establish(srv Server) (s *session, err error) {
 		log.Printf("physical adapter IPv6: %v", e.router.physV6)
 	}
 
-	tn, err := newTunnel(dev, box, e.router, e.opts.MTU, e.opts.Verbose, e.opts.BlockQUIC)
+	tn, err := newTunnel(dev, box, e.router, e.opts.MTU, e.opts.Verbose || e.store.debug(), e.opts.BlockQUIC)
 	if err != nil {
 		return nil, err
 	}
@@ -455,6 +455,11 @@ func (e *Engine) watch(s *session) {
 			resumed := now.Sub(last) > 15*time.Second // the PC was asleep
 			last = now
 			n++
+			if n%30 == 0 { // about once a minute: a trace of the tunnel health in the log
+				st := e.status()
+				log.Printf("health: tcp flows=%d (failed %d) udp flows=%d open=%d via tunnel=%d direct=%d up=%dKB down=%dKB",
+					st.TCPFlows, st.TCPFailed, st.UDPFlows, st.OpenFlows, st.ViaTunnel, st.ViaDirect, st.BytesUp/1024, st.BytesDown/1024)
+			}
 			cur, _ := parseIfIndex(ifIndexOf(s))
 			idx, err := bestInterfaceFor(s.serverIP)
 			changed := err != nil || idx != cur

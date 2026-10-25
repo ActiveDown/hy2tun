@@ -180,6 +180,15 @@ pre{margin:0;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:br
 
 <!-- LOG -->
 <section class="page" id="p-log">
+  <div class="card"><h2 data-i18n="diag.title">Problems with the connection?</h2>
+    <div class="mut small" data-i18n="diag.desc">Save a diagnostics file (logs, network state, a live test of a few sites) and send it to whoever helps you. Server passwords are not included.</div>
+    <div class="row" style="margin-top:12px"><div><b data-i18n="diag.debug">Detailed logging</b><div class="mut small" data-i18n="diag.debugd">Logs every connection (sites and programs). Takes effect on the next connect; switch it on, reproduce the problem, then save the file.</div></div><label class="sw"><input type="checkbox" id="debugLog"><span></span></label></div>
+    <button class="btn pri" id="diagBtn" style="margin-top:12px" data-i18n="diag.save">Save diagnostics</button>
+    <div id="diagDone" style="display:none;margin-top:12px"><div class="small"><b data-i18n="diag.saved">Saved as a file:</b></div>
+      <div class="sel small" id="diagPath" style="word-break:break-all;margin:4px 0 8px"></div>
+      <div class="mut small" data-i18n="diag.send">Send this .zip file. If you cannot find it, press the button to download a copy.</div>
+      <button class="btn sm" id="diagDl" style="margin-top:8px" data-i18n="diag.dl">Download a copy</button></div>
+  </div>
   <div class="card"><h2 data-i18n="log.title">Log</h2><pre class="sel" id="logbox">…</pre></div>
 </section>
 
@@ -265,6 +274,9 @@ const L={
   'dns.title':'DNS leak protection','dns.desc':'While the VPN is connected, DNS through the physical adapter (router, ISP) is blocked, so names are resolved only through the tunnel. Needs the service rights.',
   'exc.title':'Exceptions by domain and address','exc.desc':'One per line: a domain (<code>example.com</code>, subdomains included), <code>*.ru</code>, an IP or a subnet (<code>10.0.0.0/8</code>). They take priority over apps.',
   'exc.direct':'Always direct','exc.tunnel':'Always through the tunnel',
+  'diag.title':'Problems with the connection?','diag.desc':'Save a diagnostics file (logs, network state, a live test of a few sites) and send it to whoever helps you. Server passwords are not included.',
+  'diag.debug':'Detailed logging','diag.debugd':'Logs every connection (sites and programs). Takes effect on the next connect; switch it on, reproduce the problem, then save the file.',
+  'diag.save':'Save diagnostics','diag.saved':'Saved as a file:','diag.send':'Send this .zip file. If you cannot find it, press the button to download a copy.','diag.dl':'Download a copy','diag.busy':'Collecting… up to 30 seconds','diag.fail':'Could not collect diagnostics',
   'log.title':'Log','log.empty':'empty','saved':'Saved'
  },
  ru:{
@@ -300,6 +312,9 @@ const L={
   'dns.title':'Защита от утечки DNS','dns.desc':'Пока VPN подключён, запросы DNS через физический адаптер (роутер, провайдер) блокируются — имена разрешаются только через туннель. Нужны права службы.',
   'exc.title':'Исключения по доменам и адресам','exc.desc':'По одному в строке: домен (<code>example.com</code> — с поддоменами), <code>*.ru</code>, IP или подсеть (<code>10.0.0.0/8</code>). Приоритетнее приложений.',
   'exc.direct':'Всегда напрямую','exc.tunnel':'Всегда через туннель',
+  'diag.title':'Проблемы с соединением?','diag.desc':'Сохраните файл диагностики (журналы, состояние сети, живая проверка нескольких сайтов) и отправьте тому, кто помогает. Пароли серверов в него не попадают.',
+  'diag.debug':'Подробный журнал','diag.debugd':'Записывает каждое соединение (сайты и программы). Включается при следующем подключении: включите, воспроизведите проблему и сохраните файл.',
+  'diag.save':'Сохранить диагностику','diag.saved':'Сохранено в файл:','diag.send':'Отправьте этот .zip файл. Если не можете найти его, нажмите кнопку, чтобы скачать копию.','diag.dl':'Скачать копию','diag.busy':'Собираем… до 30 секунд','diag.fail':'Не удалось собрать диагностику',
   'log.title':'Журнал','log.empty':'пусто','saved':'Сохранено'
  }
 };
@@ -347,7 +362,7 @@ function renderState(d){
   $('sterr').textContent=st.state==='error'?st.error:(!st.admin&&st.state!=='connected'?t('err.admin'):'');
   $('down').textContent=fmt(st.down_bps);$('up').textContent=fmt(st.up_bps);
   $('vt').textContent=st.via_tunnel;$('vd').textContent=st.via_direct;
-  $('auto').checked=d.auto;
+  $('auto').checked=d.auto;$('debugLog').checked=!!d.debug;
   // server select
   // rebuild the options only when the list changed: replacing them every second
   // closes the drop-down while the user is choosing
@@ -378,6 +393,25 @@ $('power').onclick=async()=>{
   tick();
 };
 $('auto').onchange=e=>api('/api/app',{method:'POST',body:JSON.stringify({auto_connect:e.target.checked})});
+$('debugLog').onchange=e=>api('/api/app',{method:'POST',body:JSON.stringify({debug:e.target.checked})});
+$('diagBtn').onclick=async()=>{
+  const b=$('diagBtn');b.disabled=true;toast(t('diag.busy'));
+  try{
+    const r=await api('/api/diag?save=1');if(!r.ok)throw new Error(await r.text());
+    const d=await r.json();
+    $('diagPath').textContent=d.path;$('diagDone').style.display='block';
+    if(window.hy2Reveal)try{window.hy2Reveal(d.path)}catch(e){}
+  }catch(e){toast(t('diag.fail')+': '+e.message)}
+  b.disabled=false;
+};
+$('diagDl').onclick=async()=>{
+  try{
+    const r=await api('/api/diag');if(!r.ok)throw new Error(await r.text());
+    const blob=await r.blob();const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);a.download='hy2tun-diag-'+new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')+'.zip';
+    document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),10000);
+  }catch(e){toast(t('diag.fail')+': '+e.message)}
+};
 
 /* ---- servers ---- */
 function renderServers(){

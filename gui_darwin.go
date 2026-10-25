@@ -192,15 +192,6 @@ const (
 	guiLocalAddr = "127.0.0.1:7880" // in-process engine while the root service is not installed
 )
 
-// readTokenFile returns the control token stored in dir ("" if there is none).
-func readTokenFile(dir string) string {
-	b, err := os.ReadFile(filepath.Join(dir, "token"))
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(b))
-}
-
 func apiCall(addr, token, method, path string, body any) ([]byte, error) {
 	var r io.Reader
 	if body != nil {
