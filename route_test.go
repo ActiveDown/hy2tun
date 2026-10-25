@@ -307,3 +307,27 @@ func TestVPNClientsGoDirect(t *testing.T) {
 		t.Fatal("with the option off WireGuard follows the normal rule")
 	}
 }
+
+func TestDirectAppsAndMacVPNClients(t *testing.T) {
+	r := newRouter(t.TempDir()+"/settings.json", true)
+	c := defaultConfig()
+	c.DirectApps = []string{"Windows"}
+	if _, err := r.setConfig(c); err != nil {
+		t.Fatal(err)
+	}
+	if v, why := r.decide(proc("windows"), "rdp.example.com", noIP); v != viaDirect || why != "direct app" {
+		t.Errorf("direct app: %v %q", v, why)
+	}
+	// a helper whose ancestor is the listed app (IncludeChildren is on by default)
+	if v, _ := r.decide(proc("rdp helper", "windows"), "", netip.MustParseAddr("203.0.113.9")); v != viaDirect {
+		t.Errorf("child of a direct app should go direct")
+	}
+	if v, _ := r.decide(proc("safari"), "example.org", noIP); v != viaTunnel {
+		t.Errorf("unlisted app should use the tunnel")
+	}
+	for _, n := range []string{"wireguardnetworkextension", "openvpn connect", "ovpnagent", "amneziavpn-service", "v2box"} {
+		if v, why := r.decide(proc(n), "vpn.example.net", noIP); v != viaDirect || why != "VPN client" {
+			t.Errorf("%s: %v %q", n, v, why)
+		}
+	}
+}

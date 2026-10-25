@@ -198,6 +198,9 @@ func (r *router) decide(p *procInfo, name string, ip netip.Addr) (via, string) {
 	if c.direct.match(name, ip) {
 		return viaDirect, "direct rule"
 	}
+	if c.directAppMatches(p) {
+		return viaDirect, "direct app"
+	}
 	base, why := viaTunnel, "all traffic"
 	switch c.Mode {
 	case modeSelected:

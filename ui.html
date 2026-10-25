@@ -159,6 +159,10 @@ pre{margin:0;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:br
     <h2 data-i18n="ru.title">Proxy Russian resources</h2>
     <div class="mut small" data-i18n="ru.desc">Off: <b>.ru, .рф, Yandex, VK</b> and Russian IP addresses go direct, bypassing the server, even inside a selected app.</div>
   </div><label class="sw"><input type="checkbox" id="ru"><span></span></label></div></div>
+  <div class="card"><h2 data-i18n="dapps.title">Apps that always go direct</h2>
+    <div class="mut small" data-i18n="dapps.desc">One per line: a process name (<code>windows</code>) or a full path. Their traffic never enters the tunnel, in any mode: remote desktops, your own VPN clients.</div>
+    <textarea id="dApps" spellcheck="false" style="margin-top:10px" placeholder="windows"></textarea>
+  </div>
   <div class="card"><div class="row"><div>
     <h2 data-i18n="vpnc.title">Other VPNs go direct</h2>
     <div class="mut small" data-i18n="vpnc.desc">Traffic of WireGuard, OpenVPN and similar clients to their own servers bypasses the tunnel.</div>
@@ -256,6 +260,7 @@ const L={
   'apps.none':'Nothing found','apps.listempty':'The list is empty','apps.confirm':'Remove all {0} apps from the list?',
   'kill.title':'Kill switch','kill.desc':'While the VPN is off, the selected apps cannot reach the internet directly (only in the "Only selected apps" mode).',
   'ru.title':'Proxy Russian resources','ru.desc':'Off: <b>.ru, .рф, Yandex, VK</b> and Russian IP addresses go direct, bypassing the server, even inside a selected app.',
+  'dapps.title':'Apps that always go direct','dapps.desc':'One per line: a process name (<code>windows</code>) or a full path. Their traffic never enters the tunnel, in any mode: remote desktops, your own VPN clients.',
   'vpnc.title':'Other VPNs go direct','vpnc.desc':'Traffic of WireGuard, OpenVPN and similar clients to their own servers bypasses the tunnel.',
   'dns.title':'DNS leak protection','dns.desc':'While the VPN is connected, DNS through the physical adapter (router, ISP) is blocked, so names are resolved only through the tunnel. Needs the service rights.',
   'exc.title':'Exceptions by domain and address','exc.desc':'One per line: a domain (<code>example.com</code>, subdomains included), <code>*.ru</code>, an IP or a subnet (<code>10.0.0.0/8</code>). They take priority over apps.',
@@ -290,6 +295,7 @@ const L={
   'apps.none':'Ничего не найдено','apps.listempty':'Список пуст','apps.confirm':'Удалить все приложения из списка ({0})?',
   'kill.title':'Kill switch','kill.desc':'Пока VPN отключён, выбранным приложениям закрыт выход в интернет напрямую (только режим «Только выбранные»).',
   'ru.title':'Проксировать российские ресурсы','ru.desc':'Выключено: <b>.ru, .рф, Яндекс, VK</b> и адреса РФ идут напрямую, минуя сервер, даже внутри выбранного приложения.',
+  'dapps.title':'Приложения, которые всегда напрямую','dapps.desc':'По одному в строке: имя процесса (<code>windows</code>) или полный путь. Их трафик никогда не идёт через туннель в любом режиме: удалённые рабочие столы, ваши VPN-клиенты.',
   'vpnc.title':'Другие VPN напрямую','vpnc.desc':'Трафик WireGuard, OpenVPN и т.п. к своим серверам идёт мимо туннеля.',
   'dns.title':'Защита от утечки DNS','dns.desc':'Пока VPN подключён, запросы DNS через физический адаптер (роутер, провайдер) блокируются — имена разрешаются только через туннель. Нужны права службы.',
   'exc.title':'Исключения по доменам и адресам','exc.desc':'По одному в строке: домен (<code>example.com</code> — с поддоменами), <code>*.ru</code>, IP или подсеть (<code>10.0.0.0/8</code>). Приоритетнее приложений.',
@@ -489,7 +495,7 @@ function renderRules(){
 function saveCfg(){
   clearTimeout(saveTimer);
   saveTimer=setTimeout(async()=>{
-    cfg.direct_domains=lines($('dDirect').value);cfg.tunnel_domains=lines($('dTunnel').value);
+    cfg.direct_domains=lines($('dDirect').value);cfg.tunnel_domains=lines($('dTunnel').value);cfg.direct_apps=lines($('dApps').value);
     const r=await api('/api/config',{method:'POST',body:JSON.stringify(cfg)});
     toast(r.ok?t('saved'):await r.text());
   },400);
@@ -497,7 +503,7 @@ function saveCfg(){
 function addApp(v){v=v.trim();if(!v||cfg.apps.some(a=>a.toLowerCase()===v.toLowerCase()))return;cfg.apps.push(v);renderRules();saveCfg()}
 async function loadCfg(){
   cfg=await (await api('/api/config')).json(); cfg.apps=cfg.apps||[];
-  $('dDirect').value=(cfg.direct_domains||[]).join('\n');$('dTunnel').value=(cfg.tunnel_domains||[]).join('\n');
+  $('dDirect').value=(cfg.direct_domains||[]).join('\n');$('dTunnel').value=(cfg.tunnel_domains||[]).join('\n');$('dApps').value=(cfg.direct_apps||[]).join('\n');
   renderRules();
 }
 async function loadProcs(){
@@ -516,7 +522,7 @@ $('ru').onchange=e=>{cfg.proxy_ru=e.target.checked;saveCfg()};
 $('vpnc').onchange=e=>{cfg.vpn_clients_direct=e.target.checked;saveCfg()};
 $('kill').onchange=e=>{cfg.kill_switch=e.target.checked;saveCfg()};
 $('dnsleak').onchange=e=>{cfg.block_dns_leak=e.target.checked;saveCfg()};
-$('dDirect').oninput=saveCfg;$('dTunnel').oninput=saveCfg;
+$('dDirect').oninput=saveCfg;$('dTunnel').oninput=saveCfg;$('dApps').oninput=saveCfg;
 
 /* ---- log ---- */
 async function loadLog(){

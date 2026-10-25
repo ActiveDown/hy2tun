@@ -37,6 +37,9 @@ type Config struct {
 	// BlockDNSLeak drops DNS that would leave through a physical adapter while the
 	// tunnel is up, so name resolution can only go through the tunnel.
 	BlockDNSLeak bool `json:"block_dns_leak"`
+	// DirectApps always bypass the tunnel (remote desktop clients, VPN clients of
+	// your own...), whatever the mode: same names/paths as Apps.
+	DirectApps []string `json:"direct_apps"`
 	// KillSwitch (mode "selected" only) blocks the selected applications on the
 	// physical adapters, so they cannot leak when the tunnel is down.
 	KillSwitch bool `json:"kill_switch"`
@@ -51,6 +54,15 @@ var vpnClients = map[string]struct{}{
 	"wireguard.exe": {}, "wg.exe": {}, "openvpn.exe": {}, "openvpnserv.exe": {}, "openvpnserv2.exe": {},
 	"tailscaled.exe": {}, "zerotier-one_x64.exe": {}, "nebula.exe": {}, "softethervpnclient.exe": {},
 	"vpnclient.exe": {}, "outline-service.exe": {}, "amneziawg.exe": {}, "amneziavpn-service.exe": {},
+
+	// macOS: WireGuard (the packet-tunnel extension does the networking), OpenVPN
+	// Connect and its root agent, AmneziaVPN, V2Box, Tailscale, ZeroTier...
+	"wireguard": {}, "wireguardnetworkextension": {}, "wireguardloginitemhelper": {}, "wireguard-go": {}, "wg": {},
+	"openvpn": {}, "openvpn connect": {}, "ovpnagent": {},
+	"amneziavpn": {}, "amneziavpn-service": {}, "amneziawg-go": {}, "tun2socks": {},
+	"v2box": {}, "packettunnel": {},
+	"tailscaled": {}, "tailscale": {}, "io.tailscale.ipn.macsys.network-extension": {}, "io.tailscale.ipn.macos.network-extension": {},
+	"zerotier-one": {}, "nebula": {},
 }
 
 func isVPNClient(p *procInfo) bool {
@@ -99,6 +111,7 @@ func (c Config) normalize() (Config, error) {
 	c.Apps = cleanList(c.Apps)
 	c.DirectDomains = cleanList(c.DirectDomains)
 	c.TunnelDomains = cleanList(c.TunnelDomains)
+	c.DirectApps = cleanList(c.DirectApps)
 	return c, nil
 }
 
@@ -154,8 +167,12 @@ type compiledConfig struct {
 	Config
 	appNames map[string]struct{}
 	appPaths map[string]struct{}
-	direct   ruleSet
-	tunnel   ruleSet
+
+	directAppNames map[string]struct{}
+	directAppPaths map[string]struct{}
+
+	direct ruleSet
+	tunnel ruleSet
 }
 
 func compileConfig(c Config) (*compiledConfig, error) {
@@ -167,24 +184,41 @@ func compileConfig(c Config) (*compiledConfig, error) {
 		Config:   c,
 		appNames: map[string]struct{}{},
 		appPaths: map[string]struct{}{},
-		direct:   compileRules(c.DirectDomains),
-		tunnel:   compileRules(c.TunnelDomains),
+
+		directAppNames: map[string]struct{}{},
+		directAppPaths: map[string]struct{}{},
+
+		direct: compileRules(c.DirectDomains),
+		tunnel: compileRules(c.TunnelDomains),
 	}
-	for _, a := range c.Apps {
-		a = strings.ToLower(strings.Trim(a, `" `))
-		if strings.ContainsAny(a, `\/`) {
-			cc.appPaths[filepath.Clean(a)] = struct{}{}
-		} else {
-			cc.appNames[a] = struct{}{}
+	addApps := func(list []string, names, paths map[string]struct{}) {
+		for _, a := range list {
+			a = strings.ToLower(strings.Trim(a, `" `))
+			if strings.ContainsAny(a, `\/`) {
+				paths[filepath.Clean(a)] = struct{}{}
+			} else {
+				names[a] = struct{}{}
+			}
 		}
 	}
+	addApps(c.Apps, cc.appNames, cc.appPaths)
+	addApps(c.DirectApps, cc.directAppNames, cc.directAppPaths)
 	return cc, nil
 }
 
 // appMatches reports whether the process (or, with IncludeChildren, one of its
 // ancestors) is in the app list.
 func (c *compiledConfig) appMatches(p *procInfo) bool {
-	if p == nil {
+	return c.chainMatches(p, c.appNames, c.appPaths)
+}
+
+// directAppMatches is appMatches for the always-direct list.
+func (c *compiledConfig) directAppMatches(p *procInfo) bool {
+	return c.chainMatches(p, c.directAppNames, c.directAppPaths)
+}
+
+func (c *compiledConfig) chainMatches(p *procInfo, names, paths map[string]struct{}) bool {
+	if p == nil || (len(names) == 0 && len(paths) == 0) {
 		return false
 	}
 	chain := p.Chain
@@ -192,11 +226,11 @@ func (c *compiledConfig) appMatches(p *procInfo) bool {
 		chain = chain[:1]
 	}
 	for _, r := range chain {
-		if _, ok := c.appNames[r.Name]; ok {
+		if _, ok := names[r.Name]; ok {
 			return true
 		}
 		if r.Path != "" {
-			if _, ok := c.appPaths[filepath.Clean(r.Path)]; ok {
+			if _, ok := paths[filepath.Clean(r.Path)]; ok {
 				return true
 			}
 		}
