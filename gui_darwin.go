@@ -155,9 +155,22 @@ import (
 	"github.com/ActiveDown/hy2tun/internal/logo"
 )
 
-const (
+var (
 	guiWakeAddr = "127.0.0.1:7879" // second launches poke the running GUI here
+
+	localAPIMu sync.Mutex
+	localAPI   *apiServer
 )
+
+func closeLocalAPI() {
+	localAPIMu.Lock()
+	defer localAPIMu.Unlock()
+	if localAPI != nil {
+		localAPI.close()
+		localAPI = nil
+		log.Printf("local API closed to yield port 7878 to root service")
+	}
+}
 
 type gui struct {
 	dir     string
@@ -401,7 +414,9 @@ func cmdGUI(args []string) {
 		migrateLegacyLink(e)
 		api, _, err := startAPI(e, c.ui, !portable)
 		if err == nil {
-			defer api.close()
+			localAPIMu.Lock()
+			localAPI = api
+			localAPIMu.Unlock()
 			log.Printf("started local Hy2Tun engine at %s", c.ui)
 		}
 		// Brief pause to allow listener to accept requests

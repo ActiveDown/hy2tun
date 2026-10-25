@@ -330,7 +330,9 @@ func (e *Engine) establish(srv Server) (s *session, err error) {
 	if !isAdmin() {
 		if runtime.GOOS == "darwin" {
 			if err := tryElevateInstall(); err == nil {
-				return nil, errors.New(tr("Служба успешно установлена! Нажмите Connect ещё раз.", "Service installed! Click Connect again."))
+				return nil, errors.New(tr("Служба успешно установлена! Нажмите Connect для подключения.", "Service installed! Click Connect to connect."))
+			} else {
+				return nil, fmt.Errorf("%s (%v)", tr("нужны права администратора", "administrator rights are required"), err)
 			}
 		}
 		return nil, errors.New(tr("нужны права администратора (запустите службу: sudo ./hy2tun install)", "administrator rights are required (install service: sudo ./hy2tun install)"))

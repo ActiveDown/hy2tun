@@ -11,12 +11,27 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 )
 
 const (
 	plistLabel = "com.activedown.hy2tun"
 	plistPath  = "/Library/LaunchDaemons/com.activedown.hy2tun.plist"
 )
+
+func getActiveMacUser() string {
+	if u := os.Getenv("SUDO_USER"); u != "" {
+		return u
+	}
+	out, err := exec.Command("stat", "-f", "%Su", "/dev/console").Output()
+	if err == nil {
+		name := strings.TrimSpace(string(out))
+		if name != "" && name != "root" {
+			return name
+		}
+	}
+	return ""
+}
 
 func requireAdmin() {
 	if isAdmin() {
@@ -82,8 +97,8 @@ func cmdInstall(args []string) {
 
 	// If user configured servers in their home directory, copy to system dataDir
 	var userDirs []string
-	if sudoUser := os.Getenv("SUDO_USER"); sudoUser != "" {
-		userDirs = append(userDirs, filepath.Join("/Users", sudoUser, "Library", "Application Support", "Hy2Tun"))
+	if u := getActiveMacUser(); u != "" {
+		userDirs = append(userDirs, filepath.Join("/Users", u, "Library", "Application Support", "Hy2Tun"))
 	}
 	if home, err := os.UserHomeDir(); err == nil {
 		userDirs = append(userDirs, filepath.Join(home, "Library", "Application Support", "Hy2Tun"))
@@ -95,6 +110,7 @@ func cmdInstall(args []string) {
 			if _, err := os.Stat(dst); os.IsNotExist(err) {
 				if b, err := os.ReadFile(src); err == nil {
 					_ = os.WriteFile(dst, b, 0o644)
+					log.Printf("migrated %s to %s", src, dst)
 				}
 			}
 		}
@@ -162,8 +178,15 @@ func tryElevateInstall() error {
 	if err != nil {
 		return err
 	}
+	closeLocalAPI()
 	// Prompt with standard macOS Touch ID / password dialog
-	script := fmt.Sprintf(`do shell script "%s install" with administrator privileges`, exe)
+	script := fmt.Sprintf(`do shell script (quoted form of "%s") & " install" with administrator privileges`, exe)
 	cmd := exec.Command("osascript", "-e", script)
-	return cmd.Run()
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("elevate error: %v: %s", err, out)
+		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+	}
+	time.Sleep(1 * time.Second)
+	return nil
 }
