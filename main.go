@@ -174,7 +174,9 @@ func cmdRun(args []string) {
 	})
 	srv, ok := e.store.get("")
 	if !ok {
-		log.Fatal(tr("нет сервера: положите hy2.url рядом с программой или укажите -link", "no server: put hy2.url next to the program or pass -link"))
+		log.Println(tr("нет сохранённого сервера: открываем панель управления в браузере (добавьте ссылку hy2://)...", "no saved server: opening control panel in browser (add a hy2:// link)..."))
+		cmdAPI(args)
+		return
 	}
 
 	if c.dry {
@@ -183,7 +185,10 @@ func cmdRun(args []string) {
 	}
 	if !isAdmin() {
 		if runtime.GOOS == "darwin" {
-			log.Fatal(tr("нужны права администратора (запустите через sudo)", "administrator rights are required (run with sudo)"))
+			log.Println(tr("для создания TUN-интерфейса требуются права администратора (запустите через sudo).", "administrator rights are required to create the TUN interface (run with sudo)."))
+			log.Println(tr("открываем панель управления...", "opening control panel..."))
+			cmdAPI(args)
+			return
 		} else {
 			log.Fatal("administrator rights are required (use 1-run-as-admin.bat)")
 		}
@@ -277,6 +282,9 @@ func cmdAPI(args []string) {
 	}
 	defer api.close()
 	log.Printf("control panel: %s", url)
+	if !c.noOpen {
+		openBrowser(url)
+	}
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	<-sig
