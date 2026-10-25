@@ -1,3 +1,5 @@
+//go:build windows
+
 // Uninstall: the Hy2Tun uninstaller. It is a program of its own (not a mode of
 // the installer), so nothing about its behaviour depends on its file name or
 // on command-line arguments. The installer stores it as

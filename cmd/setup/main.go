@@ -1,3 +1,5 @@
+//go:build windows
+
 // Hy2Tun-Setup: the installer. It carries Hy2Tun.exe, Uninstall.exe and
 // wintun.dll inside (go:embed), copies them to Program Files, registers the
 // service and adds a Start menu entry and an "Apps & features" entry. The

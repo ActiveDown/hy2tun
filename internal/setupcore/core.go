@@ -7,6 +7,8 @@
 //
 // Both show the same window (progress, result, language switch). The
 // application is started only after the user presses OK.
+//go:build windows
+
 package setupcore
 
 import (

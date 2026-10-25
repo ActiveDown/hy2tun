@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -13,8 +14,6 @@ import (
 
 	"github.com/apernet/hysteria/core/v2/client"
 	"golang.zx2c4.com/wireguard/tun"
-
-	"github.com/ActiveDown/hy2tun/internal/wfp"
 )
 
 // Connection states reported to the UI.
@@ -35,7 +34,11 @@ type EngineOpts struct {
 }
 
 func defaultEngineOpts() EngineOpts {
-	return EngineOpts{TunName: "Hy2Tun", MTU: 1380, DNS: []string{"1.1.1.1", "8.8.8.8"}, DirectDNS: "77.88.8.8:53", BlockQUIC: true}
+	name := "Hy2Tun"
+	if runtime.GOOS == "darwin" {
+		name = "utun"
+	}
+	return EngineOpts{TunName: name, MTU: 1380, DNS: []string{"1.1.1.1", "8.8.8.8"}, DirectDNS: "77.88.8.8:53", BlockQUIC: true}
 }
 
 // hcBox lets the Hysteria2 client be replaced while flows keep a stable handle
@@ -205,7 +208,7 @@ func (e *Engine) Shutdown() {
 	default:
 		close(e.quit)
 	}
-	wfp.Remove()
+	cleanupFirewall()
 }
 
 // startSpeedSampler runs once per engine.
@@ -359,9 +362,16 @@ func (e *Engine) establish(srv Server) (s *session, err error) {
 		}
 	}()
 
-	dev, err := tun.CreateTUN(e.opts.TunName, e.opts.MTU)
+	tunName := e.opts.TunName
+	if runtime.GOOS == "darwin" && (tunName == "" || tunName == "Hy2Tun") {
+		tunName = "utun"
+	}
+	dev, err := tun.CreateTUN(tunName, e.opts.MTU)
 	if err != nil {
-		return nil, fmt.Errorf(tr("не удалось создать TUN (есть ли wintun.dll рядом с программой?): %v", "cannot create the TUN adapter (is wintun.dll next to the program?): %v"), err)
+		return nil, fmt.Errorf(tr("не удалось создать TUN: %v", "cannot create the TUN adapter: %v"), err)
+	}
+	if realName, rerr := dev.Name(); rerr == nil && realName != "" {
+		e.opts.TunName = realName
 	}
 	cleanup = append(cleanup, func() { dev.Close() })
 

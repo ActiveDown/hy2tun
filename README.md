@@ -1,12 +1,11 @@
 # Hy2Tun
 
-A Windows client for [Hysteria 2](https://v2.hysteria.network/) with a global TUN, **per-application
+A Windows and macOS client for [Hysteria 2](https://v2.hysteria.network/) with a global TUN, **per-application
 routing** and a desktop window in the style of Amnezia. Written in Go on top of the official
 `hysteria/core/v2` library.
 
-> **Status: first stable release (0.5).** The routing engine, the UI, the Windows service, the
-> installer / uninstaller and the firewall rules have been exercised by tests and by real use on
-> Windows 11. Binaries are not code-signed yet — see [Known limitations](#known-limitations).
+> **Status: stable release (0.6).** The routing engine, UI, background daemon / Windows service,
+> and per-app routing rules have been exercised on Windows 11 and macOS (Apple Silicon & Intel).
 
 ## Features
 
@@ -50,7 +49,19 @@ so they never loop back into the TUN.
 
 ## Build
 
-Requires Go 1.27+ and Windows.
+Requires Go 1.27+.
+
+### macOS
+
+```bash
+# Build binary directly:
+go build -trimpath -ldflags "-s -w" -o hy2tun .
+
+# Or build a Universal release (Apple Silicon + Intel) with packaging:
+./scripts/build_darwin.sh 0.6.0
+```
+
+### Windows
 
 ```powershell
 go build -trimpath -ldflags "-s -w" -o hy2tun.exe .                 # console build (portable / debugging)
@@ -91,26 +102,38 @@ The icon is generated from code (`internal/logo`, `go run ./tools/genicon`) and 
 
 ## Run
 
-Portable (foreground, administrator rights needed):
+## Run
 
+Portable (foreground, administrator / root rights needed):
+
+macOS:
+```bash
+sudo ./hy2tun run -link "hy2://password@host:443?sni=example.com#Name"
+```
+
+Windows:
 ```powershell
 hy2tun.exe run -link hy2://password@host:443?sni=example.com#Name
 ```
 
 The panel address with its access token is printed to the log (default `127.0.0.1:7878`).
 
-Installed: run `Hy2Tun-Setup.exe`, open **Hy2Tun** from the Start menu, add a `hy2://` link on the
-*Servers* tab and press **Connect**.
+macOS service installation (launchd daemon):
+```bash
+sudo ./hy2tun install
+sudo ./hy2tun uninstall
+```
 
-Uninstall: **Settings → Apps → Hy2Tun → Uninstall** (or run `C:\Program Files\Hy2Tun\Uninstall.exe`).
-The uninstaller is a separate program with the same window as the installer (what a program does never
-depends on its file name) and can optionally delete your settings and saved servers too.
+Desktop Tray / GUI:
+```bash
+./hy2tun gui
+```
 
-Other commands: `hy2tun service | install | uninstall [--purge] | gui | api | dry | version`.
+Other commands: `hy2tun service | install | uninstall | gui | api | dry | version`.
 
 ## Tests
 
-```powershell
+```bash
 go test ./...
 ```
 
@@ -122,10 +145,15 @@ go test ./...
 |------|------|
 | `engine.go`, `stack.go`, `flows.go` | tunnel lifecycle, userspace stack, per-flow relay |
 | `route.go`, `config.go`, `geoip.go` | routing decision, settings, RU address list |
-| `procinfo_windows.go` | socket → process lookup (`GetExtendedTcpTable` …) |
-| `netcfg_windows.go`, `netwatch_windows.go` | routes, DNS, network-change detection |
-| `firewall_windows.go`, `internal/wfp` | WFP policy (DNS leak, kill switch) |
-| `service_windows.go`, `gui_windows.go`, `cmd/setup` | service, window + tray, installer |
+| `procinfo.go`, `procinfo_windows.go`, `procinfo_darwin.go` | socket → process lookup (Windows API / Darwin libproc) |
+| `netcfg_windows.go`, `netcfg_darwin.go` | interface routes, DNS configuration |
+| `netwatch_windows.go`, `netwatch_darwin.go` | network-change & sleep detection |
+| `direct_windows.go`, `direct_darwin.go` | physical interface direct socket binding |
+| `firewall_windows.go`, `firewall_darwin.go` | firewall policy (WFP / packet filter) |
+| `service_windows.go`, `service_darwin.go` | Windows service / macOS launchd daemon |
+| `gui_windows.go`, `gui_darwin.go` | desktop window + menu bar tray |
+| `api.go`, `ui.html` | local control API and the web UI |
+| `tools/genru` | builds `ru_cidr.txt` from the RIPE NCC statistics |
 | `api.go`, `ui.html` | local control API and the web UI shown in the window |
 | `tools/genru` | builds `ru_cidr.txt` from the RIPE NCC statistics |
 
@@ -139,8 +167,8 @@ go test ./...
 
 ## Known limitations
 
-- Windows only (10/11, x64); field-tested on Windows 11.
-- Kill switch matches applications by executable path (child processes with another exe are not covered).
+- Tested on Windows 10/11 (x64) and macOS 14+ (Apple Silicon & Intel).
+- Windows installer is unsigned; macOS requires granting network/root permissions for TUN routes.
 - Link parameters that are not supported (for example an unknown `obfs` type) are rejected with an error instead of being ignored.
 - The Russian address list is a snapshot; refresh it with `go run ./tools/genru`.
 - No code signing, so SmartScreen may warn about the installer.

@@ -1,3 +1,5 @@
+//go:build windows
+
 package main
 
 import (
@@ -26,25 +28,6 @@ const (
 	udpTableOwnerPid    = 1
 	errInsufficientBuf  = 122
 )
-
-// procRef identifies one process (or an ancestor of it).
-type procRef struct {
-	Name string // lower-case base name, e.g. "chrome.exe"
-	Path string // lower-case full path when it could be read
-}
-
-// procInfo is the owner of a connection plus its ancestor chain (self first).
-type procInfo struct {
-	PID   uint32
-	Chain []procRef
-}
-
-func (p *procInfo) name() string {
-	if p == nil || len(p.Chain) == 0 {
-		return ""
-	}
-	return p.Chain[0].Name
-}
 
 type tcpRow struct {
 	lport, rport uint16
@@ -275,13 +258,6 @@ func (pt *procTable) lookupUDP(srcPort uint16, v6 bool) *procInfo {
 		time.Sleep(15 * time.Millisecond)
 	}
 	return nil
-}
-
-// runningProc is one entry of the "pick an app" list in the panel.
-type runningProc struct {
-	Name  string `json:"name"`
-	Path  string `json:"path"`
-	Conns int    `json:"conns"`
 }
 
 // runningWithNetwork lists processes that currently own sockets.

@@ -3,6 +3,8 @@
  * Copyright (C) 2019-2026 WireGuard LLC. All Rights Reserved.
  */
 
+//go:build windows
+
 package wfp
 
 import (

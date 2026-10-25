@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -181,7 +182,11 @@ func cmdRun(args []string) {
 		return
 	}
 	if !isAdmin() {
-		log.Fatal("administrator rights are required (use 1-run-as-admin.bat)")
+		if runtime.GOOS == "darwin" {
+			log.Fatal(tr("нужны права администратора (запустите через sudo)", "administrator rights are required (run with sudo)"))
+		} else {
+			log.Fatal("administrator rights are required (use 1-run-as-admin.bat)")
+		}
 	}
 
 	api, url, err := startAPI(e, c.ui, !portable)
@@ -206,7 +211,7 @@ func cmdRun(args []string) {
 	}
 	log.Printf("connected: traffic goes through %s. proxy .ru/.rf = %v. Ctrl+C to stop.", srv.Name, e.router.proxyRU())
 	if api != nil && !c.noOpen {
-		exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+		openBrowser(url)
 	}
 
 	sig := make(chan os.Signal, 1)
@@ -275,4 +280,15 @@ func cmdAPI(args []string) {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	<-sig
+}
+
+func openBrowser(url string) {
+	switch runtime.GOOS {
+	case "darwin":
+		exec.Command("open", url).Start()
+	case "windows":
+		exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	default:
+		exec.Command("xdg-open", url).Start()
+	}
 }

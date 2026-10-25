@@ -10,6 +10,7 @@ token
 
 # build output
 *.exe
+hy2tun
 *.dll
 *.test
 /release/
@@ -20,6 +21,7 @@ token
 !/cmd/setup/payload/.keep
 
 # editor / OS
+.DS_Store
 .vs/
 .vscode/
 .idea/

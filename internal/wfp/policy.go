@@ -1,3 +1,5 @@
+//go:build windows
+
 // Package wfp installs Hy2Tun's Windows Filtering Platform rules.
 //
 // The low-level types and syscall wrappers in this package are taken from
