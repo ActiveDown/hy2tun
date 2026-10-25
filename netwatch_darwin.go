@@ -81,9 +81,11 @@ func physicalDefaultRoute(tunAlias string) (*physRoute, error) {
 func (n *netConfig) rebindHost(rt *physRoute) error {
 	if n.serverIP.To4() == nil || rt == nil {
 		n.hostGW = rt
+		n.addScopedDefault(rt)
 		return nil
 	}
 	n.hostGW = rt
+	n.addScopedDefault(rt)
 	run("route", "delete", "-host", n.serverIP.String())
 	var args []string
 	if rt.NextHop != "" && rt.NextHop != "0.0.0.0" {

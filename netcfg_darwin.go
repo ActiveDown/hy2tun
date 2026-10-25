@@ -100,6 +100,45 @@ type netConfig struct {
 	hostGW     *physRoute
 	applied    bool
 	dnsServers []string
+	scopedIf   string // interface that got our scoped default route ("" = none)
+}
+
+// scopedDefaultArgs builds the arguments of `route <cmd>` for the default route
+// that is scoped to a physical interface.
+func scopedDefaultArgs(cmd string, rt *physRoute) []string {
+	args := []string{cmd, "-net", "-ifscope", rt.Desc, "default"}
+	if cmd == "add" {
+		if ip := net.ParseIP(rt.NextHop); ip != nil && ip.To4() != nil {
+			args = append(args, rt.NextHop)
+		} else {
+			args = append(args, "-interface", rt.Desc)
+		}
+	}
+	return args
+}
+
+// addScopedDefault gives sockets bound to the physical interface (IP_BOUND_IF,
+// used for direct traffic) a way out. Without it, as soon as the 0/1 and 128/1
+// tunnel routes exist, such sockets fail with "network is unreachable".
+func (n *netConfig) addScopedDefault(rt *physRoute) {
+	n.removeScopedDefault()
+	if rt == nil || rt.Desc == "" {
+		return
+	}
+	run("route", scopedDefaultArgs("delete", rt)...)
+	if out, err := run("route", scopedDefaultArgs("add", rt)...); err != nil {
+		log.Printf("warn: route add scoped default on %s: %v: %s", rt.Desc, err, out)
+		return
+	}
+	n.scopedIf = rt.Desc
+}
+
+func (n *netConfig) removeScopedDefault() {
+	if n.scopedIf == "" {
+		return
+	}
+	run("route", "delete", "-net", "-ifscope", n.scopedIf, "default")
+	n.scopedIf = ""
 }
 
 func (n *netConfig) apply(dnsServers []string) error {
@@ -131,6 +170,10 @@ func (n *netConfig) apply(dnsServers []string) error {
 		}
 	}
 	n.applied = true
+
+	// Direct (bound to the physical interface) sockets must keep working once the
+	// tunnel routes take over.
+	n.addScopedDefault(n.hostGW)
 
 	// 4. Default routes through the tunnel
 	routes := [][]string{
@@ -172,6 +215,8 @@ func (n *netConfig) revert() {
 	for _, r := range routes {
 		run("route", r...)
 	}
+
+	n.removeScopedDefault()
 
 	// Remove server host route
 	if n.serverIP != nil && n.serverIP.To4() != nil {

@@ -111,9 +111,13 @@ func (pt *procTable) chain(pid uint32) []procRef {
 	return out
 }
 
-func (pt *procTable) refreshSocketsLocked() {
+// refreshSocketsLocked takes a socket snapshot unless a recent one exists
+// (force ignores its age). pt.tcpAt is when the snapshot was started.
+func (pt *procTable) refreshSocketsLocked() { pt.snapshotLocked(false) }
+
+func (pt *procTable) snapshotLocked(force bool) {
 	now := time.Now()
-	if time.Since(pt.tcpAt) < 150*time.Millisecond {
+	if !force && time.Since(pt.tcpAt) < 150*time.Millisecond {
 		return
 	}
 
@@ -211,41 +215,62 @@ func parseAddrPort(s string) (netip.Addr, uint16, error) {
 	return addr, uint16(p), nil
 }
 
-func (pt *procTable) lookupTCP(srcPort uint16, dst netip.Addr, dstPort uint16) *procInfo {
-	dst = dst.Unmap()
-	pt.mu.Lock()
-	pt.refreshSocketsLocked()
+func (pt *procTable) findTCPLocked(srcPort uint16, dst netip.Addr, dstPort uint16) (uint32, bool) {
 	for _, r := range pt.tcp {
 		if r.lport == srcPort && (r.rport == dstPort || dstPort == 0) && (r.raddr == dst || !dst.IsValid()) {
-			pid := r.pid
-			pt.mu.Unlock()
-			return &procInfo{PID: pid, Chain: pt.chain(pid)}
+			return r.pid, true
 		}
 	}
 	// Fallback check by local port only if remote didn't match immediately
 	for _, r := range pt.tcp {
 		if r.lport == srcPort {
-			pid := r.pid
-			pt.mu.Unlock()
-			return &procInfo{PID: pid, Chain: pt.chain(pid)}
+			return r.pid, true
 		}
 	}
+	return 0, false
+}
+
+func (pt *procTable) lookupTCP(srcPort uint16, dst netip.Addr, dstPort uint16) *procInfo {
+	dst = dst.Unmap()
+	asked := time.Now()
+	pt.mu.Lock()
+	pt.refreshSocketsLocked()
+	pid, ok := pt.findTCPLocked(srcPort, dst, dstPort)
+	if !ok && pt.tcpAt.Before(asked) {
+		// The snapshot is older than this flow: its socket may be missing from it.
+		pt.snapshotLocked(true)
+		pid, ok = pt.findTCPLocked(srcPort, dst, dstPort)
+	}
 	pt.mu.Unlock()
-	return nil
+	if !ok {
+		return nil
+	}
+	return &procInfo{PID: pid, Chain: pt.chain(pid)}
+}
+
+func (pt *procTable) findUDPLocked(srcPort uint16) (uint32, bool) {
+	for _, r := range pt.udp {
+		if r.lport == srcPort {
+			return r.pid, true
+		}
+	}
+	return 0, false
 }
 
 func (pt *procTable) lookupUDP(srcPort uint16, v6 bool) *procInfo {
+	asked := time.Now()
 	pt.mu.Lock()
 	pt.refreshSocketsLocked()
-	for _, r := range pt.udp {
-		if r.lport == srcPort {
-			pid := r.pid
-			pt.mu.Unlock()
-			return &procInfo{PID: pid, Chain: pt.chain(pid)}
-		}
+	pid, ok := pt.findUDPLocked(srcPort)
+	if !ok && pt.tcpAt.Before(asked) {
+		pt.snapshotLocked(true)
+		pid, ok = pt.findUDPLocked(srcPort)
 	}
 	pt.mu.Unlock()
-	return nil
+	if !ok {
+		return nil
+	}
+	return &procInfo{PID: pid, Chain: pt.chain(pid)}
 }
 
 func (pt *procTable) runningWithNetwork() []runningProc {
