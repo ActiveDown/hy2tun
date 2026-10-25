@@ -15,6 +15,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// tunOffset is the headroom wireguard-go's utun device expects in front of every
+// packet passed to Read/Write (the 4-byte address-family header). Offset 0 makes
+// Read slice out of range and panic, which kills the whole service.
+const tunOffset = 4
+
 // directDialer opens sockets that are bound to the physical interface, so they
 // bypass the TUN default routes. The interface can change at run time (Wi-Fi <->
 // cable); setIfIndex updates it for all future sockets.

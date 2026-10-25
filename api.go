@@ -123,6 +123,7 @@ func (a *apiServer) state(w http.ResponseWriter, r *http.Request) {
 		"servers": a.e.store.views(st.ServerID),
 		"auto":    a.e.store.autoConnect(),
 		"lang":    lang(),
+		"build":   selfBuildID(),
 	})
 }
 

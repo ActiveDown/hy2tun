@@ -15,6 +15,11 @@ func defaultDataDir() string {
 	if os.Geteuid() == 0 {
 		return sys
 	}
+	return userDataDir()
+}
+
+// userDataDir is the per-user data folder used while no root service is installed.
+func userDataDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		home = "/tmp"

@@ -3,7 +3,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"html"
 	"log"
 	"os"
 	"os/exec"
@@ -17,6 +19,9 @@ import (
 const (
 	plistLabel = "com.activedown.hy2tun"
 	plistPath  = "/Library/LaunchDaemons/com.activedown.hy2tun.plist"
+
+	systemDataDir  = "/Library/Application Support/Hy2Tun"
+	serviceAPIAddr = "127.0.0.1:7878"
 )
 
 func getActiveMacUser() string {
@@ -82,12 +87,15 @@ func cmdInstall(args []string) {
 
 	destExe := "/usr/local/bin/hy2tun"
 	os.MkdirAll("/usr/local/bin", 0o755)
+
+	// Stop a running daemon first: its binary is about to be replaced.
+	_ = exec.Command("launchctl", "unload", plistPath).Run()
+
 	if exe != destExe {
-		// Copy binary to /usr/local/bin/hy2tun
-		b, err := os.ReadFile(exe)
-		if err == nil {
-			_ = os.WriteFile(destExe, b, 0o755)
-		} else {
+		// Copy to a new file and rename it over the old one: overwriting a signed
+		// executable in place makes macOS kill it with "Code Signature Invalid".
+		if err := copyExecutable(exe, destExe); err != nil {
+			log.Printf("warn: copy binary: %v (running from %s)", err, exe)
 			destExe = exe
 		}
 	}
@@ -95,7 +103,7 @@ func cmdInstall(args []string) {
 	dataDir := defaultDataDir()
 	os.MkdirAll(dataDir, 0o755)
 
-	// If user configured servers in their home directory, copy to system dataDir
+	// Servers and settings configured in the user's home directory move to the system dir.
 	var userDirs []string
 	if u := getActiveMacUser(); u != "" {
 		userDirs = append(userDirs, filepath.Join("/Users", u, "Library", "Application Support", "Hy2Tun"))
@@ -104,16 +112,10 @@ func cmdInstall(args []string) {
 		userDirs = append(userDirs, filepath.Join(home, "Library", "Application Support", "Hy2Tun"))
 	}
 	for _, uDir := range userDirs {
-		for _, f := range []string{"servers.json", "settings.json"} {
-			src := filepath.Join(uDir, f)
-			dst := filepath.Join(dataDir, f)
-			if _, err := os.Stat(dst); os.IsNotExist(err) {
-				if b, err := os.ReadFile(src); err == nil {
-					_ = os.WriteFile(dst, b, 0o644)
-					log.Printf("migrated %s to %s", src, dst)
-				}
-			}
+		if uDir == dataDir {
+			continue
 		}
+		migrateUserData(uDir, dataDir)
 	}
 
 	var extraArgs []string
@@ -128,7 +130,7 @@ func cmdInstall(args []string) {
 
 	var xmlArgs strings.Builder
 	for _, a := range progArgs {
-		xmlArgs.WriteString(fmt.Sprintf("        <string>%s</string>\n", a))
+		xmlArgs.WriteString(fmt.Sprintf("        <string>%s</string>\n", html.EscapeString(a)))
 	}
 
 	plistContent := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
@@ -150,14 +152,13 @@ func cmdInstall(args []string) {
     <string>%s/hy2tun.log</string>
 </dict>
 </plist>
-`, plistLabel, xmlArgs.String(), dataDir, dataDir)
+`, plistLabel, xmlArgs.String(), html.EscapeString(dataDir), html.EscapeString(dataDir))
 
 	if err := os.WriteFile(plistPath, []byte(plistContent), 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "install error writing plist: %v\n", err)
 		os.Exit(1)
 	}
 
-	_ = exec.Command("launchctl", "unload", plistPath).Run()
 	if out, err := exec.Command("launchctl", "load", "-w", plistPath).CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "launchctl load failed: %v: %s\n", err, out)
 		os.Exit(1)
@@ -173,20 +174,102 @@ func cmdUninstall(args []string) {
 	fmt.Println(tr("Служба Hy2Tun остановлена и удалена.", "Hy2Tun service stopped and removed."))
 }
 
+// copyExecutable writes src next to dst and renames it into place.
+func copyExecutable(src, dst string) error {
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	tmp := dst + ".new"
+	if err := os.WriteFile(tmp, b, 0o755); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+// migrateUserData brings servers and settings of a per-user data dir into the
+// system one. Servers are merged by link so nothing already there is lost.
+func migrateUserData(src, dst string) {
+	var in, out storeData
+	if b, err := os.ReadFile(filepath.Join(src, "servers.json")); err == nil && json.Unmarshal(b, &in) == nil {
+		if b, err := os.ReadFile(filepath.Join(dst, "servers.json")); err == nil {
+			json.Unmarshal(b, &out)
+		}
+		have := map[string]bool{}
+		ids := map[string]bool{}
+		for _, s := range out.Servers {
+			have[s.Link], ids[s.ID] = true, true
+		}
+		added := 0
+		for _, s := range in.Servers {
+			if have[s.Link] || ids[s.ID] {
+				continue
+			}
+			out.Servers = append(out.Servers, s)
+			added++
+		}
+		if out.Last == "" {
+			out.Last = in.Last
+		}
+		if out.Lang == "" {
+			out.Lang = in.Lang
+		}
+		out.AutoConnect = out.AutoConnect || in.AutoConnect
+		if added > 0 || out.Last != "" {
+			if b, err := json.MarshalIndent(out, "", "  "); err == nil && os.WriteFile(filepath.Join(dst, "servers.json"), b, 0o600) == nil {
+				log.Printf("migrated %d server(s) from %s", added, src)
+			}
+		}
+	}
+	dstSettings := filepath.Join(dst, "settings.json")
+	if _, err := os.Stat(dstSettings); os.IsNotExist(err) {
+		if b, err := os.ReadFile(filepath.Join(src, "settings.json")); err == nil {
+			_ = os.WriteFile(dstSettings, b, 0o644)
+			log.Printf("migrated settings from %s", src)
+		}
+	}
+}
+
+func appleScriptQuote(s string) string {
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
+}
+
+// tryElevateInstall installs the launchd daemon through the standard macOS
+// Touch ID / password dialog.
 func tryElevateInstall() error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	closeLocalAPI()
-	// Prompt with standard macOS Touch ID / password dialog
-	script := fmt.Sprintf(`do shell script (quoted form of "%s") & " install" with administrator privileges`, exe)
+	script := fmt.Sprintf(`do shell script (quoted form of %s) & " install" with administrator privileges`, appleScriptQuote(exe))
 	cmd := exec.Command("osascript", "-e", script)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		log.Printf("elevate error: %v: %s", err, out)
 		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
 	}
-	time.Sleep(1 * time.Second)
 	return nil
+}
+
+// handoffConnect waits for the freshly installed service to answer and asks it
+// to connect to the given server.
+func handoffConnect(id string) error {
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		tok := readTokenFile(systemDataDir)
+		if tok != "" {
+			if _, err := apiCall(serviceAPIAddr, tok, "GET", "/api/state", nil); err == nil {
+				_, err := apiCall(serviceAPIAddr, tok, "POST", "/api/connect", map[string]string{"id": id})
+				return err
+			}
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("the service did not start (see %s/hy2tun.log)", systemDataDir)
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
 }

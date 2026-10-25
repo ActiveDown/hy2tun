@@ -16,6 +16,9 @@ import (
 
 const ipUnicastIf = 31 // IP_UNICAST_IF and IPV6_UNICAST_IF
 
+// tunOffset is the headroom the TUN device needs in front of a packet (none on Wintun).
+const tunOffset = 0
+
 // directDialer opens sockets that are pinned to the physical interface, so they
 // bypass the TUN default routes. The interface can change at run time (Wi-Fi <->
 // cable); setIfIndex updates it for all future sockets.

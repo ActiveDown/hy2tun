@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -75,6 +76,10 @@ func cmdService(args []string) {
 }
 
 func tryElevateInstall() error {
+	return errors.New("not supported")
+}
+
+func handoffConnect(id string) error {
 	return errors.New("not supported")
 }
 

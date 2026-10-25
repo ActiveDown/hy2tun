@@ -24,6 +24,10 @@ const (
 	stateError        = "error"
 )
 
+// errHandedOff is returned by establish when the connection was passed on to the
+// freshly installed system service; this process has nothing left to report.
+var errHandedOff = errors.New("handed off to the service")
+
 type EngineOpts struct {
 	TunName   string
 	MTU       int
@@ -266,6 +270,11 @@ func (e *Engine) Connect(id string) error {
 		s, err := e.establish(srv)
 		e.mu.Lock()
 		e.busy = false
+		if errors.Is(err, errHandedOff) {
+			e.state, e.errMsg = stateDisconnected, ""
+			e.mu.Unlock()
+			return
+		}
 		if err != nil {
 			e.state, e.errMsg = stateError, err.Error()
 			e.mu.Unlock()
@@ -329,11 +338,15 @@ func (e *Engine) establish(srv Server) (s *session, err error) {
 	}
 	if !isAdmin() {
 		if runtime.GOOS == "darwin" {
-			if err := tryElevateInstall(); err == nil {
-				return nil, errors.New(tr("Служба успешно установлена! Нажмите Connect для подключения.", "Service installed! Click Connect to connect."))
-			} else {
+			// Install the root service (one password / Touch ID prompt), then let it
+			// carry out this very connection; the window follows it automatically.
+			if err := tryElevateInstall(); err != nil {
 				return nil, fmt.Errorf("%s (%v)", tr("нужны права администратора", "administrator rights are required"), err)
 			}
+			if err := handoffConnect(srv.ID); err != nil {
+				return nil, fmt.Errorf("%s: %v", tr("служба установлена, но подключение не удалось", "service installed, but connecting failed"), err)
+			}
+			return nil, errHandedOff
 		}
 		return nil, errors.New(tr("нужны права администратора (запустите службу: sudo ./hy2tun install)", "administrator rights are required (install service: sudo ./hy2tun install)"))
 	}
@@ -352,6 +365,13 @@ func (e *Engine) establish(srv Server) (s *session, err error) {
 		log.Printf("server %s via interface %s (%s), gateway %s", serverIP, rt.IfIndex, rt.Desc, rt.NextHop)
 		if virtualAdapter.MatchString(rt.Desc) {
 			log.Printf("WARNING: the route to the server already goes through a virtual adapter (%s) - another VPN is active", rt.Desc)
+			if runtime.GOOS == "darwin" {
+				// keep the server (and direct) traffic on the real network card
+				if phys, perr := physicalDefaultRoute(e.opts.TunName); perr == nil {
+					log.Printf("using physical interface %s (gateway %s) for the server and direct traffic", phys.Desc, phys.NextHop)
+					rt = phys
+				}
+			}
 		}
 	}
 

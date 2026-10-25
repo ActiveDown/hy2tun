@@ -96,10 +96,10 @@ func (t *tunnel) pumpIn() {
 	bufs := make([][]byte, bs)
 	sizes := make([]int, bs)
 	for i := range bufs {
-		bufs[i] = make([]byte, 65535)
+		bufs[i] = make([]byte, tunOffset+65535)
 	}
 	for {
-		n, err := t.dev.Read(bufs, sizes, 0)
+		n, err := t.dev.Read(bufs, sizes, tunOffset)
 		if err != nil {
 			if t.ctx.Err() == nil {
 				log.Printf("tun read: %v", err)
@@ -107,7 +107,7 @@ func (t *tunnel) pumpIn() {
 			return
 		}
 		for i := 0; i < n; i++ {
-			p := bufs[i][:sizes[i]]
+			p := bufs[i][tunOffset : tunOffset+sizes[i]]
 			if len(p) == 0 {
 				continue
 			}
@@ -133,7 +133,13 @@ func (t *tunnel) pumpOut() {
 		pkt.DecRef()
 		b := view.AsSlice()
 		if len(b) > 0 {
-			if _, err := t.dev.Write([][]byte{b}, 0); err != nil && t.ctx.Err() == nil {
+			if tunOffset > 0 {
+				// the macOS utun driver needs room for its 4-byte AF header before the packet
+				framed := make([]byte, tunOffset+len(b))
+				copy(framed[tunOffset:], b)
+				b = framed
+			}
+			if _, err := t.dev.Write([][]byte{b}, tunOffset); err != nil && t.ctx.Err() == nil {
 				log.Printf("tun write: %v", err)
 			}
 		}

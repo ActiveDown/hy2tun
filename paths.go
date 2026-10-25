@@ -1,9 +1,39 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
 	"os"
 	"path/filepath"
+	"sync"
 )
+
+var (
+	buildOnce sync.Once
+	buildSum  string
+)
+
+// selfBuildID identifies the running executable (a short hash of the file), so
+// the desktop app can tell whether the installed service is the same build.
+func selfBuildID() string {
+	buildOnce.Do(func() {
+		exe, err := os.Executable()
+		if err != nil {
+			return
+		}
+		f, err := os.Open(exe)
+		if err != nil {
+			return
+		}
+		defer f.Close()
+		h := sha256.New()
+		if _, err := io.Copy(h, f); err == nil {
+			buildSum = hex.EncodeToString(h.Sum(nil)[:8])
+		}
+	})
+	return buildSum
+}
 
 // resolveDataDir decides where settings, servers and the control token live.
 //
