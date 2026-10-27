@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Hy2Tun</string>
+    <string name="channel_name">Tunnel</string>
+    <string name="state_connecting">Connecting…</string>
+    <string name="state_connected_to">Connected: %1$s</string>
+    <string name="speed_line">↓ %1$s  ↑ %2$s</string>
+    <string name="action_disconnect">Disconnect</string>
+    <string name="add_profile_q">Add this server?</string>
+    <string name="add">Add</string>
+    <string name="cancel">Cancel</string>
+    <string name="added">Server added: %1$s</string>
+    <string name="scan_prompt">Point the camera at a hysteria2:// QR code</string>
+    <string name="err_no_permission">VPN permission was not granted</string>
+    <string name="err_no_apps">No app is selected for the tunnel</string>
+    <string name="err_not_a_link">No hysteria2:// or hy2:// link found</string>
+</resources>

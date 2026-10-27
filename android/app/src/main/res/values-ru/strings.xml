@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="channel_name">Туннель</string>
+    <string name="state_connecting">Подключение…</string>
+    <string name="state_connected_to">Подключено: %1$s</string>
+    <string name="speed_line">↓ %1$s  ↑ %2$s</string>
+    <string name="action_disconnect">Отключить</string>
+    <string name="add_profile_q">Добавить этот сервер?</string>
+    <string name="add">Добавить</string>
+    <string name="cancel">Отмена</string>
+    <string name="added">Сервер добавлен: %1$s</string>
+    <string name="scan_prompt">Наведите камеру на QR-код hysteria2://</string>
+    <string name="err_no_permission">Разрешение на VPN не выдано</string>
+    <string name="err_no_apps">Не выбрано ни одного приложения для туннеля</string>
+    <string name="err_not_a_link">Ссылка hysteria2:// или hy2:// не найдена</string>
+</resources>

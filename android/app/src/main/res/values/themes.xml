@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- the window background is the panel background, so there is no white flash -->
+    <style name="Theme.Hy2Tun" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/panel_bg</item>
+    </style>
+    <color name="panel_bg">#f2f4f8</color>
+</resources>

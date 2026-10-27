@@ -393,7 +393,7 @@ func (e *Engine) establish(srv Server) (s *session, err error) {
 	if runtime.GOOS == "darwin" && (tunName == "" || tunName == "Hy2Tun") {
 		tunName = "utun"
 	}
-	dev, err := tun.CreateTUN(tunName, e.opts.MTU)
+	dev, err := createTUN(tunName, e.opts.MTU)
 	if err != nil {
 		return nil, fmt.Errorf(tr("не удалось создать TUN: %v", "cannot create the TUN adapter: %v"), err)
 	}

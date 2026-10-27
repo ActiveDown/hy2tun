@@ -83,6 +83,29 @@ Or all at once (downloads and verifies `wintun.dll`, builds, packs, writes check
 `wintun.dll` (amd64) comes from <https://www.wintun.net/>; it is signed by WireGuard LLC and is
 not part of this repository (the build script pins its SHA-256).
 
+### Android
+
+The Android app lives in `android/` (Kotlin). It shows the same panel as the desktop window
+(`ui.html`, served by the engine's local API on 127.0.0.1) in a WebView. The Go engine is built from
+the repository root as `libhy2tun.so` (`go build -buildmode=c-shared`, one per ABI) and talks to the
+app over JNI (`jni_android.go`, `jni_android.c`, `mobile_android.go`); when a connection needs its
+TUN, the app builds the interface with `VpnService` and hands over the file descriptor. Requirements: the Android SDK with the **NDK** (Android Studio → SDK Manager → SDK
+Tools → *NDK (Side by side)*) and JDK 17+ (the script uses the one bundled with Android Studio).
+
+```bash
+./scripts/build_android.sh 0.7.3          # libraries + APK -> dist/Hy2Tun-0.7.3-android[-debug].apk
+./scripts/build_android.sh --lib          # libraries only (then build/run from Android Studio)
+```
+
+Without `android/keystore.properties` (`storeFile`, `storePassword`, `keyAlias`, `keyPassword`)
+the debug APK is built; with it, the signed release APK.
+
+On Android the per-app split is done by the system (`addAllowedApplication` /
+`addDisallowedApplication`, the apps are picked from the installed ones; changing the list while
+connected reconnects); the domain rules, the Russian resources switch and the DNS fallback work as
+on the desktop. The kill switch is the system "Always-on VPN" setting. The app never enters its own tunnel, and every engine socket is
+additionally exempted with `VpnService.protect()`.
+
 ### Code signing
 
 Windows shows "unknown publisher" for unsigned programs. To sign the release build you need a
@@ -162,8 +185,8 @@ go test ./...
 | `firewall_windows.go`, `firewall_darwin.go` | firewall policy (WFP / packet filter) |
 | `service_windows.go`, `service_darwin.go` | Windows service / macOS launchd daemon |
 | `gui_windows.go`, `gui_darwin.go` | desktop window + menu bar tray |
-| `api.go`, `ui.html` | local control API and the web UI |
-| `tools/genru` | builds `ru_cidr.txt` from the RIPE NCC statistics |
+| `*_android.go`, `jni_android.c` | Android: TUN from `VpnService`, `protect()`, the JNI bridge |
+| `android/` | Android app (VpnService, the panel in a WebView) |
 | `api.go`, `ui.html` | local control API and the web UI shown in the window |
 | `tools/genru` | builds `ru_cidr.txt` from the RIPE NCC statistics |
 

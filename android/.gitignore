@@ -1,0 +1,14 @@
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+.kotlin/
+# built by scripts/build_android.sh from the Go sources
+/app/src/main/jniLibs/
+# release signing
+*.jks
+*.keystore
+keystore.properties
+# the root .gitignore drops "hy2tun" (the desktop binary); keep the Kotlin package
+!/app/src/main/java/com/activedown/hy2tun/

@@ -16,6 +16,14 @@ import (
 	"github.com/apernet/hysteria/extras/v2/transport/udphop"
 )
 
+// listenUDP opens the UDP socket Hysteria2 runs on. Android replaces it so the
+// socket is exempted from the VPN (VpnService.protect); ownUDPSocket then makes
+// even a plain link go through connFactory.
+var (
+	listenUDP    = func() (net.PacketConn, error) { return net.ListenUDP("udp", nil) }
+	ownUDPSocket = false
+)
+
 // connFactory builds the UDP socket Hysteria2 runs on: a plain socket, or a
 // port-hopping one, optionally wrapped in Salamander / Gecko obfuscation (the
 // obfuscation is the outer layer, exactly like in the official client).
@@ -32,11 +40,9 @@ func (f *connFactory) New(net.Addr) (net.PacketConn, error) {
 		if f.l.HopInterval > 0 {
 			cfg = udphop.HopIntervalConfig{Min: f.l.HopInterval, Max: f.l.HopInterval}
 		}
-		pc, err = udphop.NewUDPHopPacketConn(f.hop, cfg, func() (net.PacketConn, error) {
-			return net.ListenUDP("udp", nil)
-		})
+		pc, err = udphop.NewUDPHopPacketConn(f.hop, cfg, listenUDP)
 	} else {
-		pc, err = net.ListenUDP("udp", nil)
+		pc, err = listenUDP()
 	}
 	if err != nil {
 		return nil, err
@@ -73,7 +79,7 @@ func (l *hy2Link) transport(ip net.IP) (client.ConnFactory, net.Addr, error) {
 	}
 	if !l.Hops() {
 		addr := &net.UDPAddr{IP: ip, Port: port}
-		if l.Obfs == "" {
+		if l.Obfs == "" && !ownUDPSocket {
 			return nil, addr, nil
 		}
 		return &connFactory{l: l}, addr, nil
