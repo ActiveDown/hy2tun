@@ -9,6 +9,8 @@ func protectFd(fd int) bool { return false }
 
 func establishVpn() string { return "error:no JNI bridge" }
 
+func tunClosing() {}
+
 type logcatWriter struct{}
 
 func (logcatWriter) Write(p []byte) (int, error) { return len(p), nil }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"sync"
 
 	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/tun"
@@ -26,5 +27,18 @@ func createTUN(name string, mtu int) (tun.Device, error) {
 		unix.Close(fd)
 		return nil, err
 	}
-	return dev, nil
+	return &appTun{Device: dev}, nil
+}
+
+// appTun tells the app right before the tunnel's interface goes away, so the
+// kill switch can block the selected apps first (no window in which they could
+// leave over the physical network).
+type appTun struct {
+	tun.Device
+	once sync.Once
+}
+
+func (t *appTun) Close() error {
+	t.once.Do(tunClosing)
+	return t.Device.Close()
 }

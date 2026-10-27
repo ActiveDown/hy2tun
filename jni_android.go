@@ -9,6 +9,7 @@ package main
 
 int hy2_protect(int fd);
 char *hy2_establish(void);
+void hy2_tun_closing(void);
 char *hy2_get_string(JNIEnv *env, jstring s);
 char *hy2_get_bytes(JNIEnv *env, jbyteArray a, int *n);
 jbyteArray hy2_new_bytes(JNIEnv *env, const void *p, int n);
@@ -53,6 +54,10 @@ func establishVpn() string {
 	defer C.free(unsafe.Pointer(c))
 	return C.GoString(c)
 }
+
+// tunClosing lets the app block the selected apps (kill switch) before the
+// tunnel's interface is closed.
+func tunClosing() { C.hy2_tun_closing() }
 
 // logcatWriter mirrors the log to logcat (adb logcat -s hy2tun).
 type logcatWriter struct{}

@@ -13,4 +13,7 @@
     <string name="err_no_permission">Разрешение на VPN не выдано</string>
     <string name="err_no_apps">Не выбрано ни одного приложения для туннеля</string>
     <string name="err_not_a_link">Ссылка hysteria2:// или hy2:// не найдена</string>
+    <string name="action_connect">Подключить</string>
+    <string name="kill_title">Kill switch: Hy2Tun отключён</string>
+    <string name="kill_text">У выбранных приложений нет интернета, пока VPN не подключён</string>
 </resources>

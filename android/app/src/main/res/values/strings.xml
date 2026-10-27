@@ -14,4 +14,7 @@
     <string name="err_no_permission">VPN permission was not granted</string>
     <string name="err_no_apps">No app is selected for the tunnel</string>
     <string name="err_not_a_link">No hysteria2:// or hy2:// link found</string>
+    <string name="action_connect">Connect</string>
+    <string name="kill_title">Kill switch: Hy2Tun is off</string>
+    <string name="kill_text">The selected apps have no internet until the VPN is connected</string>
 </resources>

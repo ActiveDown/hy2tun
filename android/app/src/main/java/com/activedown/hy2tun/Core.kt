@@ -53,6 +53,12 @@ object Core {
         "error:" + (e.message ?: e.toString())
     }
 
+    /** Called from native code right before the tunnel's interface is closed (kill switch). */
+    @JvmStatic
+    fun tunClosing() {
+        runCatching { Hy2VpnService.tunClosing() }
+    }
+
     class Error(message: String) : Exception(message)
 
     private fun call(method: String, arg: JSONObject = JSONObject()): Any? {
@@ -73,6 +79,14 @@ object Core {
         ready = true
         NetWatch.start(app)
         thread(name = "apps") { sendInstalledApps() }
+        thread(name = "kill-switch-start") {
+            // the kill switch also holds while the app was closed or the phone restarted:
+            // bring it up again (and when it is switched on with the tunnel down)
+            while (true) {
+                runCatching { Hy2VpnService.startKillSwitch(app) }
+                Thread.sleep(2000)
+            }
+        }
     }
 
     /** The panel URL (with the access token). */

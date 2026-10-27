@@ -11,6 +11,7 @@ static JavaVM *g_vm;
 static jclass g_core;
 static jmethodID g_protect;
 static jmethodID g_establish;
+static jmethodID g_tun_closing;
 
 JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved) {
 	JNIEnv *env;
@@ -24,7 +25,8 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved) {
 	g_core = (*env)->NewGlobalRef(env, c);
 	g_protect = (*env)->GetStaticMethodID(env, g_core, "protect", "(I)Z");
 	g_establish = (*env)->GetStaticMethodID(env, g_core, "establish", "()Ljava/lang/String;");
-	if (g_protect == NULL || g_establish == NULL)
+	g_tun_closing = (*env)->GetStaticMethodID(env, g_core, "tunClosing", "()V");
+	if (g_protect == NULL || g_establish == NULL || g_tun_closing == NULL)
 		return JNI_ERR;
 	return JNI_VERSION_1_6;
 }
@@ -81,6 +83,25 @@ char *hy2_establish(void) {
 	if (attached)
 		(*g_vm)->DetachCurrentThread(g_vm);
 	return out;
+}
+
+// hy2_tun_closing calls Core.tunClosing() from any thread.
+void hy2_tun_closing(void) {
+	JNIEnv *env;
+	int attached = 0;
+	jint r = (*g_vm)->GetEnv(g_vm, (void **)&env, JNI_VERSION_1_6);
+	if (r == JNI_EDETACHED) {
+		if ((*g_vm)->AttachCurrentThread(g_vm, &env, NULL) != JNI_OK)
+			return;
+		attached = 1;
+	} else if (r != JNI_OK) {
+		return;
+	}
+	(*env)->CallStaticVoidMethod(env, g_core, g_tun_closing);
+	if ((*env)->ExceptionCheck(env))
+		(*env)->ExceptionClear(env);
+	if (attached)
+		(*g_vm)->DetachCurrentThread(g_vm);
 }
 
 // hy2_get_string copies a Java string into a malloc'ed C string (NULL for null).

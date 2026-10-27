@@ -58,7 +58,7 @@ Requires Go 1.27+.
 go build -trimpath -ldflags "-s -w" -o hy2tun .
 
 # Or build a Universal release (Apple Silicon + Intel): Hy2Tun.app, .zip, .tar.gz and the .pkg installer in dist/
-./scripts/build_darwin.sh 0.8.1
+./scripts/build_darwin.sh 0.8.2
 ```
 
 The `.pkg` installs `Hy2Tun.app` into `/Applications` and the launchd service (`packaging/macos/scripts/postinstall`).
@@ -93,7 +93,7 @@ TUN, the app builds the interface with `VpnService` and hands over the file desc
 Tools → *NDK (Side by side)*) and JDK 17+ (the script uses the one bundled with Android Studio).
 
 ```bash
-./scripts/build_android.sh 0.8.1          # libraries + APK -> dist/Hy2Tun-0.8.1-android[-debug].apk
+./scripts/build_android.sh 0.8.2          # libraries + APK -> dist/Hy2Tun-0.8.2-android[-debug].apk
 ./scripts/build_android.sh --lib          # libraries only (then build/run from Android Studio)
 ```
 
@@ -103,7 +103,9 @@ the debug APK is built; with it, the signed release APK.
 On Android the per-app split is done by the system (`addAllowedApplication` /
 `addDisallowedApplication`, the apps are picked from the installed ones; changing the list while
 connected reconnects); the domain rules, the Russian resources switch and the DNS fallback work as
-on the desktop. The kill switch is the system "Always-on VPN" setting. The app never enters its own tunnel, and every engine socket is
+on the desktop. The kill switch works as on Windows (mode "only selected apps": while the VPN is off
+the selected apps get an interface that leads nowhere); for all apps use the system "Always-on VPN"
+with "Block connections without VPN". The app never enters its own tunnel, and every engine socket is
 additionally exempted with `VpnService.protect()`.
 
 ### Code signing

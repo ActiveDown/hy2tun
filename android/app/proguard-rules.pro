@@ -2,5 +2,6 @@
 -keep class com.activedown.hy2tun.Core {
     public static boolean protect(int);
     public static java.lang.String establish();
+    public static void tunClosing();
     public static native byte[] nativeCall(java.lang.String, byte[]);
 }

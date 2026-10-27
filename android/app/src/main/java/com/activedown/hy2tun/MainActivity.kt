@@ -11,6 +11,7 @@ import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -40,6 +41,9 @@ class MainActivity : ComponentActivity() {
     companion object {
         @Volatile
         private var current: MainActivity? = null
+
+        /** The window is in the foreground (system dialogs can be shown). */
+        val visible get() = current != null
 
         /**
          * Shows the system VPN consent dialog for a connection started from the
@@ -170,6 +174,12 @@ class MainActivity : ComponentActivity() {
 
     /** window.Hy2Android in the panel. */
     inner class Bridge {
+        /** The system VPN settings: "Always-on VPN" and "Block connections without VPN". */
+        @JavascriptInterface
+        fun openVpnSettings() = runOnUiThread {
+            runCatching { startActivity(Intent(Settings.ACTION_VPN_SETTINGS)) }
+        }
+
         @JavascriptInterface
         fun scanQr() = runOnUiThread {
             qrScan.launch(
@@ -177,7 +187,7 @@ class MainActivity : ComponentActivity() {
                     .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
                     .setPrompt(getString(R.string.scan_prompt))
                     .setBeepEnabled(false)
-                    .setOrientationLocked(false),
+                    .setOrientationLocked(true),
             )
         }
     }
@@ -185,17 +195,16 @@ class MainActivity : ComponentActivity() {
 
 /**
  * Adapts the desktop panel to Android after it loaded: hides what the system
- * does itself or what has no meaning here (kill switch -> "Always-on VPN",
- * DNS leak protection, other VPN clients, child processes, start with the
- * computer, process names, the diagnostics file), words the app list for
- * packages and adds QR scanning next to the link field.
+ * does itself or what has no meaning here (DNS leak protection, other VPN
+ * clients, child processes, start with the computer, process names, the
+ * diagnostics file), words the app list and the kill switch for Android and
+ * adds QR scanning next to the link field.
  */
 private val ANDROID_JS = """
 (function(){
   if(document.body.classList.contains('android'))return;
   document.body.classList.add('android');
   const hide=e=>{if(e)e.style.display='none'};
-  hide(${'$'}('kill').closest('.row'));
   hide(${'$'}('kids').closest('label'));
   hide(${'$'}('appIn').closest('.add'));
   hide(${'$'}('vpnc').closest('.card'));
@@ -206,13 +215,21 @@ private val ANDROID_JS = """
   hide(${'$'}('diagBtn'));hide(${'$'}('diagDone'));
   hide(document.querySelector('[data-i18n="diag.desc"]'));
   Object.assign(L.en,{'apps.hint':'Pick the apps from the installed ones.','qr.scan':'Scan QR code',
+    'kill.desc':'While the VPN is off, the selected apps have no internet (only in the "Only selected apps" mode). To protect all apps, turn on "Always-on VPN" and "Block connections without VPN" for Hy2Tun in the Android settings.',
+    'kill.sys':'Open VPN settings',
     'diag.debugd':'Logs every connection (sites and apps). Takes effect on the next connect.'});
   Object.assign(L.ru,{'apps.hint':'Выберите приложения из установленных.','qr.scan':'Сканировать QR-код',
+    'kill.desc':'Пока VPN выключен, у выбранных приложений нет интернета (только в режиме «Только выбранные»). Чтобы защитить все приложения, включите для Hy2Tun «Постоянная VPN» и «Блокировать соединения без VPN» в настройках Android.',
+    'kill.sys':'Открыть настройки VPN',
     'diag.debugd':'Записывает каждое соединение (сайты и приложения). Включается при следующем подключении.'});
   const b=document.createElement('button');
   b.className='btn';b.style.marginTop='8px';b.dataset.i18n='qr.scan';
   b.onclick=()=>Hy2Android.scanQr();
   ${'$'}('linkAdd').closest('.add').after(b);
+  const k=document.createElement('button');
+  k.className='btn sm';k.style.marginTop='8px';k.dataset.i18n='kill.sys';
+  k.onclick=()=>Hy2Android.openVpnSettings();
+  ${'$'}('kill').closest('.row').after(k);
   applyLang();
 })();
 """
