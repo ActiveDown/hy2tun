@@ -1,7 +1,7 @@
 # Hy2Tun
 
-A Windows and macOS client for [Hysteria 2](https://v2.hysteria.network/) with a global TUN, **per-application
-routing** and a desktop window in the style of Amnezia. Written in Go on top of the official
+A Windows, macOS and Android client for [Hysteria 2](https://v2.hysteria.network/) with a global TUN,
+**per-application routing** and a window in the style of Amnezia. Written in Go on top of the official
 `hysteria/core/v2` library.
 
 > **Status: stable release (0.6).** The routing engine, UI, background daemon / Windows service,
@@ -58,7 +58,7 @@ Requires Go 1.27+.
 go build -trimpath -ldflags "-s -w" -o hy2tun .
 
 # Or build a Universal release (Apple Silicon + Intel): Hy2Tun.app, .zip, .tar.gz and the .pkg installer in dist/
-./scripts/build_darwin.sh 0.7.0
+./scripts/build_darwin.sh 0.8.0
 ```
 
 The `.pkg` installs `Hy2Tun.app` into `/Applications` and the launchd service (`packaging/macos/scripts/postinstall`).
@@ -93,7 +93,7 @@ TUN, the app builds the interface with `VpnService` and hands over the file desc
 Tools → *NDK (Side by side)*) and JDK 17+ (the script uses the one bundled with Android Studio).
 
 ```bash
-./scripts/build_android.sh 0.7.3          # libraries + APK -> dist/Hy2Tun-0.7.3-android[-debug].apk
+./scripts/build_android.sh 0.8.0          # libraries + APK -> dist/Hy2Tun-0.8.0-android[-debug].apk
 ./scripts/build_android.sh --lib          # libraries only (then build/run from Android Studio)
 ```
 
