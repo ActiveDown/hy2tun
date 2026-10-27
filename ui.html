@@ -32,12 +32,16 @@ h2{font-size:15px;margin:0 0 4px}
 .stline{margin-top:16px;font-size:18px;font-weight:600}
 .sub{margin-top:2px;color:var(--mut);font-size:13px;text-align:center;max-width:420px}
 .err{color:var(--bad);margin-top:8px;font-size:13px;text-align:center}
-.speeds{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:20px}
+.speeds{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;margin-top:20px}
 .speeds div{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
 .speeds b{display:block;font-size:20px}
 .srvsel{display:flex;gap:8px;margin-top:18px}
 select,input[type=text],textarea{background:var(--card2);color:var(--tx);border:1px solid var(--line);border-radius:10px;padding:9px 11px;font:inherit;outline:none}
 select{flex:1}input[type=text]{flex:1}
+/* flex items may not grow past the row: on a narrow screen a long option or the
+   field's default width pushed the button out and the page scrolled sideways */
+select,input[type=text]{min-width:0;max-width:100%}
+.add .btn{flex:none}
 input:focus,textarea:focus,select:focus{border-color:var(--acc)}
 textarea{width:100%;min-height:90px;resize:vertical;font:13px/1.4 Consolas,monospace}
 .btn{background:var(--btn);color:var(--tx);border:0;border-radius:10px;padding:9px 14px;font:inherit;cursor:pointer}
@@ -93,6 +97,9 @@ pre{margin:0;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:br
 .srv .acts{display:flex;gap:6px;flex:none}
 .srv .acts .btn{padding:7px 11px;font-size:13px}
 .srv .n span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* phones: the server's buttons go under its name, and no desktop scrollbar */
+@media (max-width:480px){.srv{flex-wrap:wrap}.srv .n{flex-basis:100%}.srv .acts{margin-left:auto}}
+@media (pointer:coarse){::-webkit-scrollbar{width:0;height:0}}
 #toast{position:fixed;left:50%;bottom:70px;transform:translateX(-50%);background:var(--card2);border:1px solid var(--line);padding:8px 14px;border-radius:10px;opacity:0;transition:.25s;pointer-events:none;font-size:13px}
 #toast.on{opacity:1}
 .langbtn{margin-left:auto}

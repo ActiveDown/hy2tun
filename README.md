@@ -58,7 +58,7 @@ Requires Go 1.27+.
 go build -trimpath -ldflags "-s -w" -o hy2tun .
 
 # Or build a Universal release (Apple Silicon + Intel): Hy2Tun.app, .zip, .tar.gz and the .pkg installer in dist/
-./scripts/build_darwin.sh 0.8.0
+./scripts/build_darwin.sh 0.8.1
 ```
 
 The `.pkg` installs `Hy2Tun.app` into `/Applications` and the launchd service (`packaging/macos/scripts/postinstall`).
@@ -93,7 +93,7 @@ TUN, the app builds the interface with `VpnService` and hands over the file desc
 Tools → *NDK (Side by side)*) and JDK 17+ (the script uses the one bundled with Android Studio).
 
 ```bash
-./scripts/build_android.sh 0.8.0          # libraries + APK -> dist/Hy2Tun-0.8.0-android[-debug].apk
+./scripts/build_android.sh 0.8.1          # libraries + APK -> dist/Hy2Tun-0.8.1-android[-debug].apk
 ./scripts/build_android.sh --lib          # libraries only (then build/run from Android Studio)
 ```
 
