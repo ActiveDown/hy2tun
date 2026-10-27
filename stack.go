@@ -39,6 +39,9 @@ type tunnel struct {
 	procs         *procTable
 	flows         *flowSet
 	directDNSAddr string
+	// localDNS are the network's own resolvers, asked directly when the tunnel
+	// resolver says a name does not exist (corporate / router-VPN names).
+	localDNS []string
 
 	failLast, failSkipped atomic.Int64
 

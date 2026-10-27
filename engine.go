@@ -422,6 +422,10 @@ func (e *Engine) establish(srv Server) (s *session, err error) {
 	}
 	tn.direct = direct
 	tn.directDNSAddr = e.opts.DirectDNS
+	tn.localDNS = systemDNSServers(e.opts.DNS)
+	if len(tn.localDNS) > 0 {
+		log.Printf("dns: names unknown to the tunnel resolver fall back to %v", tn.localDNS)
+	}
 	tn.start()
 	cleanup = append(cleanup, func() { tn.close() })
 

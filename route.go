@@ -234,6 +234,11 @@ func (r *router) decide(p *procInfo, name string, ip netip.Addr) (via, string) {
 	return base, why
 }
 
+// directRule reports whether the user pinned name to "always direct".
+func (r *router) directRule(name string) bool {
+	return r.cfg.Load().direct.match(name, netip.Addr{})
+}
+
 // decideDNS chooses the resolver path for a query (the asking app is not
 // known for DNS, so only name rules apply).
 func (r *router) decideDNS(name string) via {

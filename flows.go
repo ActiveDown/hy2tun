@@ -264,27 +264,92 @@ func (t *tunnel) learnDNS(msg []byte) {
 	}
 }
 
-// directDNS answers a query for an RU name through a RU resolver on the
-// physical interface, which gives geo-correct answers.
-func (t *tunnel) directDNS(local net.Conn, q []byte) {
-	ctx, cancel := context.WithTimeout(t.ctx, 4*time.Second)
-	defer cancel()
-	c, err := t.direct.dialUDP(ctx, t.directDNSAddr)
-	if err != nil {
+// directDNS answers a query through resolvers on the physical interface. RU names
+// go to the RU resolver, which gives geo-correct answers. Names the user pinned to
+// "always direct" belong to a private network (corporate, router VPN), so the
+// network's own resolvers are asked first; a name nobody knows falls through to
+// the RU resolver last.
+func (t *tunnel) directDNS(local net.Conn, q []byte, qname string) {
+	servers := []string{t.directDNSAddr}
+	if len(t.localDNS) > 0 {
+		var own []string
+		for _, s := range t.localDNS {
+			own = append(own, net.JoinHostPort(s, "53"))
+		}
+		if t.rt.directRule(qname) {
+			servers = append(own, servers...)
+		} else {
+			servers = append(servers, own...)
+		}
+	}
+	var best []byte
+	for _, srv := range servers {
+		resp := t.askDirect(srv, q)
+		if resp == nil {
+			continue
+		}
+		if best == nil || dnsScore(resp) > dnsScore(best) {
+			best = resp
+		}
+		if dnsScore(best) == 2 {
+			break
+		}
+	}
+	if best == nil {
 		return
 	}
+	t.learnDNS(best)
+	local.Write(best)
+}
+
+// dnsScore ranks a DNS response: 2 has answers, 1 is NOERROR without records
+// (the name exists but has none of that type: an AAAA query for an IPv4-only
+// host), 0 is an error such as NXDOMAIN. An NXDOMAIN for AAAA makes the system
+// resolver conclude that the whole name does not exist, so NODATA must win over it.
+func dnsScore(resp []byte) int {
+	if len(resp) < 12 || resp[3]&0x0f != 0 {
+		return 0
+	}
+	if resp[6] != 0 || resp[7] != 0 {
+		return 2
+	}
+	return 1
+}
+
+// askDirect sends one DNS query to addr over the physical interface.
+func (t *tunnel) askDirect(addr string, q []byte) []byte {
+	ctx, cancel := context.WithTimeout(t.ctx, 3*time.Second)
+	defer cancel()
+	c, err := t.direct.dialUDP(ctx, addr)
+	if err != nil {
+		return nil
+	}
 	defer c.Close()
-	c.SetDeadline(time.Now().Add(4 * time.Second))
+	c.SetDeadline(time.Now().Add(3 * time.Second))
 	if _, err := c.Write(q); err != nil {
-		return
+		return nil
 	}
 	buf := make([]byte, 4096)
 	n, err := c.Read(buf)
-	if err != nil {
-		return
+	if err != nil || n < 12 {
+		return nil
 	}
-	t.learnDNS(buf[:n])
-	local.Write(buf[:n])
+	return buf[:n]
+}
+
+// dnsFallback re-asks q at the network's own resolvers over the physical
+// interface after the tunnel resolver answered NXDOMAIN. A usable answer replaces
+// the NXDOMAIN; otherwise the original response is passed on.
+func (t *tunnel) dnsFallback(local net.Conn, q, orig []byte) {
+	for _, srv := range t.localDNS {
+		buf := t.askDirect(net.JoinHostPort(srv, "53"), q)
+		if buf != nil && dnsScore(buf) > 0 {
+			t.learnDNS(buf)
+			local.Write(buf)
+			return
+		}
+	}
+	local.Write(orig)
 }
 
 func (t *tunnel) handleUDP(req *udp.ForwarderRequest) {
@@ -316,6 +381,7 @@ func (t *tunnel) handleUDP(req *udp.ForwarderRequest) {
 		defer local.Close()
 
 		var up udpPath
+		var pending sync.Map // DNS id -> query, for the NXDOMAIN fallback
 		var name, pn, why string
 		var pi *procInfo
 		path := viaTunnel
@@ -376,9 +442,12 @@ func (t *tunnel) handleUDP(req *udp.ForwarderRequest) {
 								continue
 							}
 						}
-						go t.directDNS(local, pkt)
+						go t.directDNS(local, pkt, qn)
 						continue
 					}
+				}
+				if isDNS && len(pkt) >= 12 {
+					pending.Store(uint16(pkt[0])<<8|uint16(pkt[1]), pkt)
 				}
 				if err := up.Send(pkt); err != nil {
 					return
@@ -394,6 +463,12 @@ func (t *tunnel) handleUDP(req *udp.ForwarderRequest) {
 					return
 				}
 				if isDNS {
+					if len(data) >= 12 && data[3]&0x0f == 3 && len(t.localDNS) > 0 && t.direct != nil {
+						if q, ok := pending.LoadAndDelete(uint16(data[0])<<8 | uint16(data[1])); ok {
+							go t.dnsFallback(local, q.([]byte), data)
+							continue
+						}
+					}
 					t.learnDNS(data)
 				}
 				if _, err := local.Write(data); err != nil {

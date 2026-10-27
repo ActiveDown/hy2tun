@@ -30,5 +30,6 @@ Thumbs.db
 
 # local build output and icon work files
 /dist/
+/dist-dev/
 assets/variant-*.png
 assets/preview-sizes.png
