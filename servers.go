@@ -102,11 +102,17 @@ func (s *serverStore) add(link, name string) (Server, error) {
 		}
 	}
 	srv := Server{ID: randomID(), Name: name, Link: link}
+	previousLast := s.d.Last
 	s.d.Servers = append(s.d.Servers, srv)
 	if s.d.Last == "" {
 		s.d.Last = srv.ID
 	}
-	return srv, s.saveLocked()
+	if err := s.saveLocked(); err != nil {
+		s.d.Servers = s.d.Servers[:len(s.d.Servers)-1]
+		s.d.Last = previousLast
+		return Server{}, err
+	}
+	return srv, nil
 }
 
 func (s *serverStore) remove(id string) error {

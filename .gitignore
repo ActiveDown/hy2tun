@@ -5,6 +5,8 @@ servers.json
 settings.json
 apppaths.json
 token
+ssh-host-keys.json
+.ssh-host-keys-*
 *.log
 *.log.old
 

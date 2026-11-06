@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="A quiet place to focus, collect your thoughts and plan your day.">
+<meta name="color-scheme" content="light">
+<title>Quiet Desk — a little room to focus</title>
+<style>
+:root{--paper:#f6f3ec;--ink:#292c27;--muted:#74776c;--line:#dddfd2;--green:#53634d;--green-soft:#edf0e7;--copper:#a96345;--white:#fffdf8;--radius:22px}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input,textarea{font:inherit;color:inherit}button{cursor:pointer}button:disabled{cursor:default;opacity:.55}button,input,textarea{outline-offset:4px}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--copper)}button{touch-action:manipulation}main{max-width:1120px;margin:auto;padding:0 36px 36px}.top{display:flex;align-items:center;justify-content:space-between;padding:32px 0;border-bottom:1px solid var(--line)}.brand{display:flex;align-items:center;gap:10px;font-weight:650;letter-spacing:-.4px;font-size:20px}.mark{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;background:var(--green);border-radius:10px;color:var(--white);font-size:24px;font-weight:300}.top-right{display:flex;align-items:center;gap:18px}.tiny{font-size:12px;color:var(--muted)}.language{border:1px solid var(--line);background:transparent;border-radius:30px;padding:5px 11px;font-size:12px}.intro{display:flex;justify-content:space-between;gap:24px;padding:48px 0 35px;align-items:flex-end}.eyebrow{text-transform:uppercase;letter-spacing:2.2px;font-size:11px;font-weight:650;color:var(--copper);margin:0 0 12px}h1,h2,p{margin:0}h1{font:400 clamp(34px,5vw,54px)/1.12 Georgia,"Times New Roman",serif;letter-spacing:-1.6px;max-width:620px}.intro p:last-child{margin-top:16px;color:var(--muted);max-width:530px}.clock{text-align:right;flex-shrink:0;padding-bottom:3px}.clock time{font-size:26px;font-weight:350;font-variant-numeric:tabular-nums;letter-spacing:-1px}.clock .tiny{text-transform:capitalize}.layout{display:grid;grid-template-columns:1.05fr 1fr;gap:22px;align-items:start}.card{background:var(--white);border:1px solid var(--line);border-radius:var(--radius);padding:26px}.card-head{display:flex;align-items:center;justify-content:space-between;gap:12px}h2{font-size:15px;font-weight:650;letter-spacing:-.25px}.badge{font-size:11px;border:1px solid var(--line);border-radius:20px;padding:3px 10px;color:var(--muted);white-space:nowrap}.timer-card{grid-row:span 2;background:var(--green-soft);border-color:#d8ddcf;padding-bottom:27px}.timer-wrap{text-align:center;padding:30px 0 24px}.timer-label{font-size:12px;color:var(--green);letter-spacing:.3px}.digits{font-size:clamp(60px,9vw,96px);line-height:1.3;font-weight:300;font-variant-numeric:tabular-nums;letter-spacing:-5px}.progress{width:170px;height:3px;border-radius:3px;background:#d3d9ca;margin:9px auto 0;overflow:hidden}.progress span{display:block;width:0;height:100%;background:var(--green);transition:width .4s linear}.presets{display:flex;justify-content:center;gap:8px;margin:0 0 22px}.preset{font-size:12px;background:transparent;border:1px solid #cbd2c3;border-radius:24px;padding:7px 13px}.preset[aria-pressed="true"]{background:var(--white);border-color:var(--green);color:var(--green)}.timer-actions{display:flex;justify-content:center;gap:10px}.primary{background:var(--green);color:var(--white);border:1px solid var(--green);border-radius:12px;padding:10px 22px;font-weight:550;min-width:137px}.secondary{border:1px solid #cbd2c3;background:transparent;border-radius:12px;padding:10px 16px}.timer-note{font-size:12px;color:var(--muted);text-align:center;border-top:1px solid #d7ddcf;margin-top:30px;padding-top:20px}.tasks{margin:18px 0 0;padding:0;list-style:none;max-height:244px;overflow-y:auto}.tasks li{display:flex;align-items:flex-start;gap:10px;padding:9px 0;border-bottom:1px solid #eeeee6}.tasks li:last-child{border-bottom:0}.tasks input{accent-color:var(--green);width:17px;height:17px;margin:4px 0 0;flex-shrink:0}.task-label{display:flex;gap:10px;flex:1;min-width:0;cursor:pointer}.task-text{overflow-wrap:anywhere}.completed .task-text{text-decoration:line-through;color:var(--muted)}.remove{border:0;background:transparent;line-height:1;padding:4px;color:var(--muted);font-size:21px;flex-shrink:0}.remove:hover{color:var(--copper)}.task-form{display:flex;gap:10px;margin-top:16px}.task-form input{width:100%;min-width:0;border:1px solid var(--line);border-radius:10px;background:transparent;padding:9px 12px;font-size:13px}.task-form button{border:1px solid var(--line);background:var(--paper);border-radius:10px;width:41px;flex-shrink:0;font-size:21px}.empty{font-size:13px;color:var(--muted);padding:22px 0 4px}.notes{width:100%;min-height:118px;resize:vertical;border:0;border-bottom:1px solid var(--line);background:transparent;line-height:1.8;font-size:14px;margin-top:16px;padding:0 0 12px;max-height:440px}.notes::placeholder{color:#979b8d}.note-meta{display:flex;justify-content:space-between;gap:12px;font-size:11px;color:var(--muted);margin-top:8px}.footer{display:flex;justify-content:space-between;align-items:center;gap:20px;font-size:12px;color:var(--muted);padding-top:30px}.footer .leaf{color:var(--green);font-size:18px;margin-right:6px}.live{min-height:22px;font-size:12px;color:var(--copper);text-align:center;margin-top:10px}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media(max-width:740px){main{padding:0 20px 24px}.top{padding:22px 0}.intro{padding:30px 0 25px;display:block}.intro h1{max-width:500px;letter-spacing:-1px}.clock{text-align:left;margin-top:24px;display:flex;align-items:baseline;gap:12px}.clock time{font-size:21px}.layout{grid-template-columns:1fr;gap:16px}.timer-card{grid-row:auto}.card{padding:22px}.timer-wrap{padding:20px 0}.digits{font-size:82px}.timer-note{margin-top:22px;padding-top:16px}.top-right>.tiny{display:none}.footer{align-items:flex-start;font-size:11px}.footer>span:last-child{text-align:right;max-width:145px}}
+@media(prefers-reduced-motion:reduce){.progress span{transition:none}}
+</style>
+</head>
+<body>
+<main>
+  <header class="top">
+    <div class="brand"><span class="mark" aria-hidden="true">+</span>Quiet Desk</div>
+    <div class="top-right"><span class="tiny" data-t="tagline">A little room to focus.</span><button class="language" id="language" type="button" aria-label="Switch language">RU</button></div>
+  </header>
+  <section class="intro" aria-labelledby="heading">
+    <div><p class="eyebrow" data-t="eyebrow">YOUR DAILY CORNER</p><h1 id="heading" data-t="heading">One thing at a time.</h1><p data-t="intro">Set a little time aside. Gather your thoughts. Make space for what matters today.</p></div>
+    <div class="clock"><time id="clock">00:00</time><div class="tiny" id="date"></div></div>
+  </section>
+  <div class="layout">
+    <section class="card timer-card" aria-labelledby="timer-heading">
+      <div class="card-head"><h2 id="timer-heading" data-t="focus">Focus timer</h2><span class="badge" data-t="unhurried">No rush, just progress</span></div>
+      <div class="timer-wrap"><div class="timer-label" id="timer-label">A fresh start</div><div class="digits" id="timer" role="timer" aria-live="off">25:00</div><div class="progress" id="progress" role="progressbar" aria-label="Session progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="progress-bar"></span></div></div>
+      <div class="presets" role="group" aria-label="Session length" id="presets"><button class="preset" type="button" data-minutes="15" aria-pressed="false">15 min</button><button class="preset" type="button" data-minutes="25" aria-pressed="true">25 min</button><button class="preset" type="button" data-minutes="50" aria-pressed="false">50 min</button></div>
+      <div class="timer-actions"><button class="primary" id="start" type="button">Start focusing</button><button class="secondary" id="reset" type="button" data-t="reset">Reset</button></div>
+      <div class="live" id="timer-status" role="status"></div>
+      <p class="timer-note" data-t="timerNote">A small ritual: close a few tabs, take a breath, begin.</p>
+    </section>
+    <section class="card" aria-labelledby="tasks-heading">
+      <div class="card-head"><h2 id="tasks-heading" data-t="tasks">A few things for today</h2><span class="badge" id="task-count">0 / 0</span></div>
+      <ul class="tasks" id="tasks"></ul><p class="empty" id="empty-tasks" data-t="emptyTasks">Start small. What would make today feel good?</p>
+      <form class="task-form" id="task-form"><label for="new-task" class="sr-only" data-t="newTask">Add a small task</label><input id="new-task" type="text" maxlength="180" autocomplete="off" placeholder="Add a small task…"><button type="submit" id="add-task" aria-label="Add task">+</button></form>
+    </section>
+    <section class="card" aria-labelledby="notes-heading">
+      <div class="card-head"><h2 id="notes-heading" data-t="notes">Loose thoughts</h2><span class="tiny" data-t="private">Only in this browser</span></div>
+      <label class="sr-only" for="notes" data-t="notes">Loose thoughts</label><textarea class="notes" id="notes" maxlength="20000" placeholder="An idea, a reminder, something to come back to…" spellcheck="true"></textarea>
+      <div class="note-meta"><span id="save-state" role="status"></span><span id="note-count">0</span></div>
+    </section>
+  </div>
+  <footer class="footer"><span><span class="leaf" aria-hidden="true">↟</span><span data-t="footer">A clearer desk. A quieter mind.</span></span><span data-t="local">Your notes and tasks stay in this browser.</span></footer>
+</main>
+<script>
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const strings = {
+    en: {tagline:'A little room to focus.',eyebrow:'YOUR DAILY CORNER',heading:'One thing at a time.',intro:'Set a little time aside. Gather your thoughts. Make space for what matters today.',focus:'Focus timer',unhurried:'No rush, just progress',reset:'Reset',timerNote:'A small ritual: close a few tabs, take a breath, begin.',tasks:'A few things for today',emptyTasks:'Start small. What would make today feel good?',newTask:'Add a small task',taskPlaceholder:'Add a small task…',addTask:'Add task',remove:'Remove task',notes:'Loose thoughts',private:'Only in this browser',notesPlaceholder:'An idea, a reminder, something to come back to…',footer:'A clearer desk. A quieter mind.',local:'Your notes and tasks stay in this browser.',start:'Start focusing',pause:'Pause',resume:'Keep going',fresh:'A fresh start',running:'A little time, just for this',paused:'Take your time',finished:'Nicely done. Take a small break.',saved:'Saved in this browser',memory:'For this visit only: browser storage unavailable',progress:'Session progress',length:'Session length',min:'min',completeTitle:'Time for a little break — Quiet Desk'},
+    ru: {tagline:'Немного места для главного.',eyebrow:'ВАШ ТИХИЙ УГОЛОК',heading:'Одно дело за раз.',intro:'Выделите немного времени. Соберите мысли. Оставьте место для того, что важно сегодня.',focus:'Таймер фокуса',unhurried:'Без спешки, шаг за шагом',reset:'Сбросить',timerNote:'Маленький ритуал: закройте лишние вкладки, вдохните и начните.',tasks:'Несколько дел на сегодня',emptyTasks:'Начните с малого. Что сделает этот день лучше?',newTask:'Добавить небольшое дело',taskPlaceholder:'Добавить небольшое дело…',addTask:'Добавить дело',remove:'Удалить дело',notes:'Мысли на полях',private:'Только в этом браузере',notesPlaceholder:'Идея, напоминание, что-то, к чему хочется вернуться…',footer:'Чище стол. Спокойнее мысли.',local:'Ваши заметки и дела остаются в этом браузере.',start:'Начать фокус',pause:'Пауза',resume:'Продолжить',fresh:'Всё начинается с малого',running:'Немного времени для одного дела',paused:'Можно не спешить',finished:'Отлично. Сделайте небольшой перерыв.',saved:'Сохранено в браузере',memory:'На время визита: хранилище браузера недоступно',progress:'Прогресс сессии',length:'Длительность сессии',min:'мин',completeTitle:'Пора немного отдохнуть — Quiet Desk'}
+  };
+  function read(key, fallback) {try {const value=localStorage.getItem('quietdesk.'+key); return value===null?fallback:JSON.parse(value);} catch (_) {return fallback;}}
+  let storageOK = true;
+  function save(key, value) {try {localStorage.setItem('quietdesk.'+key,JSON.stringify(value));} catch (_) {storageOK=false;}}
+  let language=read('language','');
+  if(!strings[language]) language=(navigator.language||'').toLowerCase().startsWith('ru')?'ru':'en';
+  const t=key=>strings[language][key];
+  let tasks=read('tasks',[]);
+  tasks=Array.isArray(tasks)?tasks.filter(x=>x&&typeof x.text==='string').slice(0,100).map(x=>({text:x.text.slice(0,180),done:!!x.done})):[];
+  const oldNote=read('notes',''); $('notes').value=typeof oldNote==='string'?oldNote.slice(0,20000):'';
+  let minutes=25, remaining=minutes*60*1000, deadline=0, running=false, completed=false;
+  function updateClock() {
+    const now=new Date(),locale=language==='ru'?'ru-RU':'en-GB';
+    $('clock').textContent=now.toLocaleTimeString(locale,{hour:'2-digit',minute:'2-digit',hour12:false});
+    $('clock').dateTime=now.toISOString();
+    $('date').textContent=now.toLocaleDateString(locale,{weekday:'short',day:'numeric',month:'long'});
+  }
+  function updateTimer() {
+    if(running) {
+      remaining=Math.max(0,deadline-Date.now());
+      if(remaining===0) {running=false;completed=true;$('timer-status').textContent=t('finished');document.title=t('completeTitle');}
+    }
+    const seconds=Math.ceil(remaining/1000);
+    $('timer').textContent=String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');
+    const progress=Math.max(0,Math.min(100,Math.round((1-remaining/(minutes*60000))*100)));
+    $('progress').setAttribute('aria-valuenow',String(progress));$('progress-bar').style.width=progress+'%';
+    $('start').textContent=t(running?'pause':remaining<minutes*60000&&remaining>0?'resume':'start');
+    $('timer-label').textContent=t(completed?'finished':running?'running':remaining<minutes*60000?'paused':'fresh');
+    document.querySelectorAll('[data-minutes]').forEach(button=>{button.setAttribute('aria-pressed',String(Number(button.dataset.minutes)===minutes));button.disabled=running;button.textContent=button.dataset.minutes+' '+t('min');});
+  }
+  function resetTimer() {running=false;remaining=minutes*60000;completed=false;$('timer-status').textContent='';document.title='Quiet Desk';updateTimer();}
+  $('start').addEventListener('click',()=>{if(running){remaining=Math.max(0,deadline-Date.now());running=false;}else{if(remaining<=0)remaining=minutes*60000;deadline=Date.now()+remaining;running=true;completed=false;$('timer-status').textContent='';document.title='Quiet Desk';}updateTimer();});
+  $('reset').addEventListener('click',resetTimer);
+  document.querySelectorAll('[data-minutes]').forEach(button=>button.addEventListener('click',()=>{minutes=Number(button.dataset.minutes);resetTimer();}));
+  function renderTasks() {
+    $('tasks').replaceChildren();
+    tasks.forEach((task,index)=>{
+      const li=document.createElement('li'),label=document.createElement('label'),box=document.createElement('input'),text=document.createElement('span'),remove=document.createElement('button');
+      li.className=task.done?'completed':'';label.className='task-label';box.type='checkbox';box.checked=task.done;text.className='task-text';text.textContent=task.text;
+      box.addEventListener('change',()=>{task.done=box.checked;save('tasks',tasks);renderTasks();const next=$('tasks').children[index];if(next)next.querySelector('input').focus();});
+      remove.type='button';remove.className='remove';remove.textContent='×';remove.setAttribute('aria-label',t('remove')+': '+task.text);remove.addEventListener('click',()=>{tasks.splice(index,1);save('tasks',tasks);renderTasks();const next=$('tasks').children[Math.min(index,tasks.length-1)];if(next)next.querySelector('button').focus();else $('new-task').focus();});
+      label.append(box,text);li.append(label,remove);$('tasks').append(li);
+    });
+    $('task-count').textContent=tasks.filter(task=>task.done).length+' / '+tasks.length;
+    $('empty-tasks').hidden=tasks.length>0;$('new-task').disabled=tasks.length>=100;$('add-task').disabled=tasks.length>=100;
+    updateNoteState();
+  }
+  $('task-form').addEventListener('submit',event=>{event.preventDefault();const text=$('new-task').value.trim();if(!text||tasks.length>=100)return;tasks.push({text,done:false});save('tasks',tasks);$('new-task').value='';renderTasks();$('new-task').focus();});
+  function updateNoteState() {$('save-state').textContent=t(storageOK?'saved':'memory');$('note-count').textContent=$('notes').value.length.toLocaleString(language==='ru'?'ru-RU':'en-GB');}
+  $('notes').addEventListener('input',()=>{save('notes',$('notes').value);updateNoteState();});
+  function translate() {
+    document.documentElement.lang=language;
+    document.querySelectorAll('[data-t]').forEach(element=>{element.textContent=t(element.dataset.t);});
+    $('language').textContent=language==='en'?'RU':'EN';$('language').setAttribute('aria-label',language==='en'?'Переключить на русский':'Switch to English');
+    $('new-task').placeholder=t('taskPlaceholder');$('notes').placeholder=t('notesPlaceholder');$('add-task').setAttribute('aria-label',t('addTask'));$('progress').setAttribute('aria-label',t('progress'));$('presets').setAttribute('aria-label',t('length'));
+    if(completed){$('timer-status').textContent=t('finished');document.title=t('completeTitle');}
+    updateClock();updateTimer();renderTasks();
+  }
+  $('language').addEventListener('click',()=>{language=language==='en'?'ru':'en';save('language',language);translate();});
+  save('language',language);translate();
+  setInterval(()=>{updateClock();updateTimer();},250);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden){updateClock();updateTimer();}});
+})();
+</script>
+</body>
+</html>

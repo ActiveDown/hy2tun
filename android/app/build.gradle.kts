@@ -6,8 +6,8 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// -PversionName=0.8.2 (scripts/build_android.sh passes the release version)
-val appVersion = (findProperty("versionName") as String?) ?: "0.8.2"
+// -PversionName=1.0.0 (scripts/build_android.sh passes the release version)
+val appVersion = (findProperty("versionName") as String?) ?: "1.0.0"
 val appVersionCode = appVersion.substringBefore('-').split('.').map { it.toIntOrNull() ?: 0 }
     .let { (it + listOf(0, 0, 0)).take(3) }.let { it[0] * 10000 + it[1] * 100 + it[2] }
 

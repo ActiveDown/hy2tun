@@ -24,9 +24,10 @@ var uiHTML string
 // apiServer is the localhost control surface used by the desktop window, the
 // tray and (for the portable build) a normal browser tab.
 type apiServer struct {
-	e     *Engine
-	token string
-	srv   *http.Server
+	e      *Engine
+	token  string
+	srv    *http.Server
+	deploy *provisionManager
 }
 
 func newToken() string {
@@ -38,7 +39,7 @@ func newToken() string {
 // startAPI listens on listen (127.0.0.1:port). The token is written to
 // <dir>/token so that a local GUI process can find it.
 func startAPI(e *Engine, listen string, secure bool) (*apiServer, string, error) {
-	a := &apiServer{e: e, token: newToken()}
+	a := &apiServer{e: e, token: newToken(), deploy: newProvisionManager(e)}
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {
 		return nil, "", err
@@ -58,6 +59,7 @@ func startAPI(e *Engine, listen string, secure bool) (*apiServer, string, error)
 	mux.HandleFunc("/api/servers/delete", a.guard(a.serverDelete))
 	mux.HandleFunc("/api/servers/share", a.guard(a.serverShare))
 	mux.HandleFunc("/api/servers/qr", a.guard(a.serverQR))
+	mux.HandleFunc("/api/servers/deploy", a.guard(a.serverDeploy))
 	mux.HandleFunc("/api/connect", a.guard(a.connect))
 	mux.HandleFunc("/api/disconnect", a.guard(a.disconnect))
 	mux.HandleFunc("/api/app", a.guard(a.app))
@@ -74,7 +76,39 @@ func startAPI(e *Engine, listen string, secure bool) (*apiServer, string, error)
 	return a, "http://" + ln.Addr().String() + "/?t=" + a.token, nil
 }
 
-func (a *apiServer) close() { a.srv.Close() }
+func (a *apiServer) close() { a.deploy.close(); a.srv.Close() }
+
+func (a *apiServer) serverDeploy(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		writeJSON(w, a.deploy.status())
+		return
+	}
+	var body struct {
+		provisionRequest
+		ID     string `json:"id"`
+		Trust  bool   `json:"trust"`
+		Cancel bool   `json:"cancel"`
+	}
+	if !readJSON(w, r, &body, 16<<10) {
+		return
+	}
+	var st provisionStatus
+	var err error
+	if body.ID != "" || body.Trust || body.Cancel {
+		st, err = a.deploy.action(body.ID, body.Trust, body.Cancel)
+	} else {
+		if err = body.provisionRequest.normalize(); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		st, err = a.deploy.start(body.provisionRequest)
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	writeJSON(w, st)
+}
 
 // guard rejects requests without the token or with a foreign Host header
 // (protects against other web pages and DNS rebinding).

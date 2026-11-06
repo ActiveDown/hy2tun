@@ -4,7 +4,7 @@ A Windows, macOS and Android client for [Hysteria 2](https://v2.hysteria.network
 **per-application routing** and a window in the style of Amnezia. Written in Go on top of the official
 `hysteria/core/v2` library.
 
-> **Status: stable release (0.6).** The routing engine, UI, background daemon / Windows service,
+> **Version: 1.0.0.** The routing engine, UI, background daemon / Windows service,
 > and per-app routing rules have been exercised on Windows 11 and macOS (Apple Silicon & Intel).
 
 ## Features
@@ -27,6 +27,7 @@ A Windows, macOS and Android client for [Hysteria 2](https://v2.hysteria.network
 - **DNS leak protection** and an optional **kill switch** for the selected apps, implemented
   with the Windows Filtering Platform (dynamic session — nothing persistent is left behind).
 - **Server list** with `hy2://` import, copy / QR code sharing.
+- **Server deployment over SSH** from the Servers tab, with automatic profile creation.
 - **Obfuscation and port hopping**: `obfs=salamander` (or `gecko`) with `obfs-password`, a port range in the
   address (`host:20000-30000`) or `mport=20000-30000`, `hop-interval=<seconds>`, and `pinSHA256` certificate pinning.
 - **English and Russian** UI (English by default).
@@ -58,7 +59,7 @@ Requires Go 1.27+.
 go build -trimpath -ldflags "-s -w" -o hy2tun .
 
 # Or build a Universal release (Apple Silicon + Intel): Hy2Tun.app, .zip, .tar.gz and the .pkg installer in dist/
-./scripts/build_darwin.sh 0.8.2
+./scripts/build_darwin.sh 1.0.0
 ```
 
 The `.pkg` installs `Hy2Tun.app` into `/Applications` and the launchd service (`packaging/macos/scripts/postinstall`).
@@ -93,7 +94,7 @@ TUN, the app builds the interface with `VpnService` and hands over the file desc
 Tools → *NDK (Side by side)*) and JDK 17+ (the script uses the one bundled with Android Studio).
 
 ```bash
-./scripts/build_android.sh 0.8.2          # libraries + APK -> dist/Hy2Tun-0.8.2-android[-debug].apk
+./scripts/build_android.sh 1.0.0          # libraries + APK -> dist/Hy2Tun-1.0.0-android[-debug].apk
 ./scripts/build_android.sh --lib          # libraries only (then build/run from Android Studio)
 ```
 
@@ -130,7 +131,42 @@ The icon is generated from code (`internal/logo`, `go run ./tools/genicon`) and 
 
 ## Run
 
-## Run
+### Deploying a new server
+
+On **Servers → Deploy a server**, enter the VPS IPv4 address (or hostname), SSH port,
+login, password, and domain. An email for the certificate and a profile name are optional.
+Use a fresh Debian 11+ or Ubuntu 20.04+ server running systemd 245+, with root access
+or passwordless sudo. The domain's DNS A records must point to the VPS; TCP 80/443
+and UDP 443 must be available, including in the provider's firewall.
+
+The app asks you to confirm a new SSH host-key fingerprint before sending the
+password. It saves that public key and rejects unexpected changes. SSH passwords
+are used in memory for one deployment and are not saved. A separate random VPN
+password is generated for each server.
+
+Deployment installs Hysteria 2.13.0, obtains and renews a Let's Encrypt certificate,
+enables startup through systemd, and configures UFW while preserving the SSH port.
+Existing Hysteria installations and websites in `/var/www/masq` are not overwritten.
+The finished profile appears automatically in the list; connecting immediately is
+optional. A failed UDP test still retains the installed profile with a warning.
+If setup fails after configuration was written, the recovery profile is also kept.
+Stopping setup does not undo changes already made on the VPS.
+
+For small VPS disks, installation requires at least 150 MB free, does not upgrade
+the OS, and clears its package cache/lists and temporary installer. Hysteria logs
+use a separate journal namespace in RAM, capped at 2 MB. Inspect it using
+`journalctl --namespace=hy2tun -u hysteria-server`. Failed installation logs remain
+in `/run/hy2tun-deploy.*/deploy.log` until reboot.
+
+The domain serves **Quiet Desk**, a standalone static page (about 19 KB) with a
+clock, focus timer, tasks and notes. Tasks, notes and language preferences are
+stored only in the visitor's browser, using localStorage, with an in-memory fallback
+if browser storage is unavailable. There are no external assets, databases or
+server writes for this page's user data.
+
+Windows release packages can also be cross-built on macOS/Linux using
+`./scripts/build_windows.sh 1.0.0`. It verifies the pinned Wintun DLL and writes a
+GUI installer, portable archive and `SHA256SUMS-windows.txt` to `dist/`.
 
 Portable (foreground, administrator / root rights needed):
 

@@ -97,6 +97,20 @@ pre{margin:0;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:br
 .srv .acts{display:flex;gap:6px;flex:none}
 .srv .acts .btn{padding:7px 11px;font-size:13px}
 .srv .n span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* SSH deployment form */
+.deploy-box{max-width:500px;overflow:auto}
+.deploy-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin:14px 0}
+.deploy-grid label{display:flex;flex-direction:column;gap:5px;font-size:13px;min-width:0}
+.deploy-grid .wide{grid-column:1/-1}
+.deploy-grid input{width:100%;min-width:0;background:var(--card2);color:var(--tx);border:1px solid var(--line);border-radius:10px;padding:9px 11px;font:inherit;outline:none}
+.deploy-grid input:focus{border-color:var(--acc)}
+.deploy-fields{border:0;padding:0;margin:0;min-width:0}
+.deploy-status{padding:12px;background:var(--card2);border:1px solid var(--line);border-radius:12px;margin-top:12px}
+.deploy-status.error{border-color:var(--bad)}.deploy-status.success{border-color:var(--ok)}
+.deploy-status p{margin:6px 0 0}.deploy-fingerprint{font:12px/1.5 Consolas,monospace;overflow-wrap:anywhere;user-select:text;margin:10px 0}
+.deploy-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.deploy-summary{margin-top:10px;text-align:left;width:100%}
+.btn:disabled{opacity:.55;cursor:default}
 /* phones: the server's buttons go under its name, and no desktop scrollbar */
 @media (max-width:480px){.srv{flex-wrap:wrap}.srv .n{flex-basis:100%}.srv .acts{margin-left:auto}}
 @media (pointer:coarse){::-webkit-scrollbar{width:0;height:0}}
@@ -139,6 +153,11 @@ pre{margin:0;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:br
   <div class="card"><h2 data-i18n="srv.add">Add a server</h2>
     <div class="mut small" data-i18n="srv.hint">Paste a link like <code>hy2://password@host:port?sni=…#Name</code></div>
     <div class="add" style="margin-top:10px"><input type="text" id="linkIn" placeholder="hy2://…"><button class="btn pri" id="linkAdd" data-i18n="btn.add">Add</button></div>
+  </div>
+  <div class="card"><h2 data-i18n="deploy.title">Set up a new server</h2>
+    <div class="mut small" data-i18n="deploy.short">Install Hysteria2 over SSH and add the connection to this device.</div>
+    <button class="btn pri" id="deployOpen" style="margin-top:10px" data-i18n="deploy.open">Deploy a server</button>
+    <button class="btn sm deploy-summary" id="deploySummary" style="display:none"></button>
   </div>
   <div id="srvList"></div>
 </section>
@@ -223,6 +242,44 @@ pre{margin:0;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:br
   <div class="mfoot"><span></span><button class="btn pri sm" id="instDone" data-i18n="btn.done">Done</button></div>
 </div></div>
 
+<!-- deploy a new server over SSH -->
+<div class="modal" id="deployModal" role="dialog" aria-modal="true" aria-labelledby="deployTitle"><div class="mbox deploy-box">
+  <div class="mhead"><h2 id="deployTitle" data-i18n="deploy.title">Set up a new server</h2><button class="btn sm" id="deployClose" data-i18n="btn.close">Close</button></div>
+  <form id="deployForm" autocomplete="off">
+    <fieldset class="deploy-fields" id="deployFields">
+      <div class="mut small" data-i18n="deploy.hint">Use a fresh Ubuntu or Debian server, with root access or passwordless sudo. Point your domain to its IP first. An existing Hysteria2 installation will not be overwritten.</div>
+      <div class="deploy-grid">
+        <label class="wide"><span data-i18n="deploy.name">Name (optional)</span><input type="text" id="deployName" maxlength="100" placeholder="My VPS" data-i18n-ph="deploy.nameph"></label>
+        <label><span data-i18n="deploy.host">Server IP or hostname</span><input type="text" id="deployHost" required maxlength="253" spellcheck="false" autocapitalize="none" placeholder="203.0.113.10"></label>
+        <label><span data-i18n="deploy.port">SSH port</span><input type="number" id="deployPort" required min="1" max="65535" value="22" inputmode="numeric"></label>
+        <label><span data-i18n="deploy.user">SSH login</span><input type="text" id="deployUser" required maxlength="32" value="root" spellcheck="false" autocapitalize="none"></label>
+        <label><span data-i18n="deploy.password">SSH password</span><input type="password" id="deployPassword" required maxlength="1024" autocomplete="new-password"></label>
+        <label class="wide"><span data-i18n="deploy.domain">Domain</span><input type="text" id="deployDomain" required maxlength="253" spellcheck="false" autocapitalize="none" placeholder="vpn.example.com"></label>
+        <label class="wide"><span data-i18n="deploy.email">Certificate email (optional)</span><input type="email" id="deployEmail" maxlength="254" placeholder="you@example.com" autocapitalize="none"></label>
+      </div>
+      <label class="row small" style="justify-content:flex-start"><input type="checkbox" id="deployConnect"><span data-i18n="deploy.connect">Connect to the VPN when ready</span></label>
+      <p class="mut small" data-i18n="deploy.privacy">The SSH password is used only for this setup and is not saved. A separate VPN password is generated automatically.</p>
+      <button class="btn pri" id="deployStart" type="submit" data-i18n="deploy.start">Set up server</button>
+    </fieldset>
+  </form>
+  <div class="deploy-status" id="deployStatus" style="display:none" aria-live="polite">
+    <b id="deployStatusTitle"></b>
+    <p class="small" id="deployStatusText"></p>
+    <p class="small" id="deployWarning" style="display:none;color:var(--warn)"></p>
+    <div id="deployTrust" style="display:none">
+      <p class="mut small" data-i18n="deploy.trusthint">Check this SSH fingerprint against your server provider before sending the password.</p>
+      <div class="deploy-fingerprint" id="deployFingerprint"></div>
+      <button class="btn pri" id="deployTrustBtn" data-i18n="deploy.trust">Trust and deploy</button>
+    </div>
+    <p class="mut small" id="deployCancelHint" style="display:none" data-i18n="deploy.cancelhint">You can close this window while setup continues. Stopping the task does not undo changes already made on the server.</p>
+    <div class="deploy-actions">
+      <button class="btn dng" id="deployCancel" style="display:none" data-i18n="deploy.cancel">Stop setup</button>
+      <button class="btn" id="deployNew" style="display:none" data-i18n="deploy.new">Set up another server</button>
+    </div>
+  </div>
+  <div class="err" id="deployError" role="alert"></div>
+</div></div>
+
 <!-- share a server link -->
 <div class="modal" id="shareModal"><div class="mbox">
   <div class="mhead"><h2><span data-i18n="share.title">Share</span>: <span id="shareName"></span></h2><button class="btn sm" id="shareClose" data-i18n="btn.close">Close</button></div>
@@ -249,6 +306,50 @@ function toast(t){const e=$('toast');e.textContent=t;e.classList.add('on');setTi
 /* ---- translations: English is the default, Russian is opt-in ---- */
 const L={
  en:{
+  "deploy.title":"Set up a new server",
+  "deploy.short":"Install Hysteria2 over SSH and add the connection to this device.",
+  "deploy.open":"Deploy a server",
+  "deploy.hint":"Use a fresh Ubuntu or Debian server, with root access or passwordless sudo. Point your domain to its IP first. An existing Hysteria2 installation will not be overwritten.",
+  "deploy.name":"Name (optional)",
+  "deploy.nameph":"My VPS",
+  "deploy.host":"Server IP or hostname",
+  "deploy.port":"SSH port",
+  "deploy.user":"SSH login",
+  "deploy.password":"SSH password",
+  "deploy.domain":"Domain",
+  "deploy.email":"Certificate email (optional)",
+  "deploy.connect":"Connect to the VPN when ready",
+  "deploy.privacy":"The SSH password is used only for this setup and is not saved. A separate VPN password is generated automatically.",
+  "deploy.start":"Set up server",
+  "deploy.running":"Setting up the server…",
+  "deploy.awaiting":"Confirm the SSH server",
+  "deploy.trusthint":"Check this SSH fingerprint against your server provider before sending the password.",
+  "deploy.trust":"Trust and deploy",
+  "deploy.cancel":"Stop setup",
+  "deploy.cancelhint":"You can close this window while setup continues. Stopping the task does not undo changes already made on the server.",
+  "deploy.new":"Set up another server",
+  "deploy.success":"Server ready",
+  "deploy.successwarn":"Server added — check the connection",
+  "deploy.successdesc":"The server has been added to your list. Use Share to copy its connection link.",
+  "deploy.failed":"Setup did not finish",
+  "deploy.busy":"Setup is already running. Open its progress below.",
+  "deploy.network":"Could not contact the local service. The server task may still be running; reconnect to check its status.",
+  "deploy.stage.ssh":"Connecting over SSH…",
+  "deploy.stage.preflight":"Checking the server and domain…",
+  "deploy.stage.packages":"Installing required packages…",
+  "deploy.stage.install":"Installing Hysteria2…",
+  "deploy.stage.configure":"Configuring VPN and the website…",
+  "deploy.stage.firewall":"Configuring the firewall…",
+  "deploy.stage.certificate":"Getting the TLS certificate and starting the service…",
+  "deploy.stage.verify":"Checking the VPN connection…",
+  "deploy.stage.save":"Adding the server to your list…",
+  "deploy.stage.connect":"Connecting the VPN…",
+  "deploy.stage.done":"Ready",
+  "deploy.summary.running":"Server setup in progress — show details",
+  "deploy.summary.awaiting_host_key":"SSH fingerprint needs confirmation — show details",
+  "deploy.summary.succeeded":"Server is ready — show details",
+  "deploy.summary.warning":"Server added — check connection details",
+  "deploy.summary.failed":"Server setup needs attention — show details",
   'nav.home':'Home','nav.servers':'Servers','nav.rules':'Rules','nav.log':'Log',
   'power.connect':'Connect','power.disconnect':'Disconnect',
   'state.disconnected':'Disconnected','state.connecting':'Connecting…','state.connected':'Connected','state.error':'Error',
@@ -287,6 +388,50 @@ const L={
   'log.title':'Log','log.empty':'empty','saved':'Saved'
  },
  ru:{
+  "deploy.title":"Развернуть новый сервер",
+  "deploy.short":"Установка Hysteria2 по SSH и добавление подключения на это устройство.",
+  "deploy.open":"Развернуть сервер",
+  "deploy.hint":"Нужен чистый сервер Ubuntu или Debian с доступом root или sudo без пароля. Заранее направьте домен на его IP. Существующая установка Hysteria2 не будет перезаписана.",
+  "deploy.name":"Название (необязательно)",
+  "deploy.nameph":"Мой VPS",
+  "deploy.host":"IP или адрес сервера",
+  "deploy.port":"Порт SSH",
+  "deploy.user":"Логин SSH",
+  "deploy.password":"Пароль SSH",
+  "deploy.domain":"Домен",
+  "deploy.email":"Email для сертификата (необязательно)",
+  "deploy.connect":"Подключиться к VPN после настройки",
+  "deploy.privacy":"Пароль SSH используется только для этой настройки и не сохраняется. Отдельный пароль VPN будет создан автоматически.",
+  "deploy.start":"Настроить сервер",
+  "deploy.running":"Настраиваем сервер…",
+  "deploy.awaiting":"Подтвердите SSH-сервер",
+  "deploy.trusthint":"Перед отправкой пароля сверьте этот отпечаток SSH с данными сервера у провайдера.",
+  "deploy.trust":"Доверять и развернуть",
+  "deploy.cancel":"Остановить настройку",
+  "deploy.cancelhint":"Можно закрыть окно — настройка продолжится. Остановка задачи не отменяет изменения, уже сделанные на сервере.",
+  "deploy.new":"Настроить ещё один сервер",
+  "deploy.success":"Сервер готов",
+  "deploy.successwarn":"Сервер добавлен — проверьте подключение",
+  "deploy.successdesc":"Сервер добавлен в список. Через «Поделиться» можно скопировать ссылку подключения.",
+  "deploy.failed":"Настройка не завершена",
+  "deploy.busy":"Настройка уже выполняется. Её ход можно открыть ниже.",
+  "deploy.network":"Нет связи с локальной службой. Настройка сервера могла продолжиться; восстановите связь, чтобы проверить состояние.",
+  "deploy.stage.ssh":"Подключаемся по SSH…",
+  "deploy.stage.preflight":"Проверяем сервер и домен…",
+  "deploy.stage.packages":"Устанавливаем необходимые пакеты…",
+  "deploy.stage.install":"Устанавливаем Hysteria2…",
+  "deploy.stage.configure":"Настраиваем VPN и сайт…",
+  "deploy.stage.firewall":"Настраиваем firewall…",
+  "deploy.stage.certificate":"Получаем TLS-сертификат и запускаем службу…",
+  "deploy.stage.verify":"Проверяем VPN-подключение…",
+  "deploy.stage.save":"Добавляем сервер в список…",
+  "deploy.stage.connect":"Подключаем VPN…",
+  "deploy.stage.done":"Готово",
+  "deploy.summary.running":"Сервер настраивается — показать ход",
+  "deploy.summary.awaiting_host_key":"Нужно подтвердить отпечаток SSH — открыть",
+  "deploy.summary.succeeded":"Сервер готов — подробнее",
+  "deploy.summary.warning":"Сервер добавлен — проверьте подключение",
+  "deploy.summary.failed":"Настройка сервера требует внимания — открыть",
   'nav.home':'Главная','nav.servers':'Серверы','nav.rules':'Правила','nav.log':'Журнал',
   'power.connect':'Подключить','power.disconnect':'Отключить',
   'state.disconnected':'Отключено','state.connecting':'Подключение…','state.connected':'Подключено','state.error':'Ошибка',
@@ -339,6 +484,7 @@ function applyLang(){
   $('langBtn').textContent=lang==='ru'?'EN':'RU';
   if(S)renderState(S);
   if(cfg)renderRules();
+  renderDeployment();
   const q=$('shareQr'); if(q)$('qrBtn').textContent=q.style.display==='block'?t('qr.hide'):t('qr.show');
 }
 $('langBtn').onclick=async()=>{
@@ -352,7 +498,7 @@ document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
   page=b.dataset.p;
   document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));
   document.querySelectorAll('.page').forEach(x=>x.classList.toggle('on',x.id==='p-'+page));
-  if(page==='log')loadLog(); if(page==='rules'){loadProcs();loadInstalled()} if(page==='servers')renderServers();
+  if(page==='log')loadLog(); if(page==='rules'){loadProcs();loadInstalled()} if(page==='servers'){renderServers();loadDeployment()}
 });
 
 /* ---- status ---- */
@@ -433,6 +579,85 @@ $('srvList').onclick=async e=>{
   if(!r.ok)toast(await r.text()); tick();
 };
 
+/* ---- SSH deployment ---- */
+let deployment=null, deploySending=false, deployPolling=false, deployNotified='', deployDismissed='';
+function deploymentBusy(d=deployment){return !!d&&['running','awaiting_host_key'].includes(d.state)}
+function renderDeployment(){
+  const d=deployment, busy=deploymentBusy(), terminal=d&&['succeeded','failed'].includes(d.state);
+  const show=!!d&&d.state!=='idle'&&d.id!==deployDismissed;
+  $('deployFields').disabled=busy||deploySending;
+  $('deployForm').style.display=show?'none':'';
+  $('deployStatus').style.display=show?'':'none';
+  $('deployStatus').className='deploy-status'+(d&&d.state==='failed'?' error':d&&d.state==='succeeded'?' success':'');
+  $('deployTrust').style.display=d&&d.state==='awaiting_host_key'?'':'none';
+  $('deployFingerprint').textContent=d&&d.fingerprint||'';
+  $('deployTrustBtn').disabled=deploySending;
+  $('deployCancel').disabled=deploySending;
+  $('deployCancel').style.display=busy?'':'none';
+  $('deployCancelHint').style.display=busy?'':'none';
+  $('deployNew').style.display=terminal?'':'none';
+  $('deploySummary').style.display=d&&d.state!=='idle'?'':'none';
+  if(!d)return;
+  $('deployStatusTitle').textContent=t(d.state==='awaiting_host_key'?'deploy.awaiting':d.state==='succeeded'?(d.warning?'deploy.successwarn':'deploy.success'):d.state==='failed'?'deploy.failed':'deploy.running');
+  $('deployWarning').style.display=d.warning?'':'none';$('deployWarning').textContent=d.warning||'';
+  $('deployStatusText').textContent=d.error||(d.state==='succeeded'?t('deploy.successdesc'):d.state==='running'?t('deploy.stage.'+(d.stage||'ssh')):'');
+  $('deploySummary').textContent=t('deploy.summary.'+(d.warning&&d.state==='succeeded'?'warning':d.state));
+}
+async function updateDeployment(d){
+  const previous=deployment;
+  deployment=d;renderDeployment();
+  if(['succeeded','failed'].includes(d.state)&&d.server_id&&d.id!==deployNotified){
+    deployNotified=d.id;
+    await tick();
+    if(d.server_id&&S&&(S.servers||[]).some(s=>s.id===d.server_id)){$('srvSel').value=d.server_id;selTouched=true}
+    if(d.state==='succeeded'&&!d.warning&&previous&&previous.id===d.id&&deploymentBusy(previous))toast(t('deploy.success'));
+  }
+}
+async function loadDeployment(){
+  if(deployPolling||deploySending)return;
+  deployPolling=true;
+  try{
+    const r=await api('/api/servers/deploy');
+    if(r.ok){await updateDeployment(await r.json());if($('deployError').textContent===t('deploy.network'))$('deployError').textContent=''}
+    else if($('deployModal').classList.contains('on'))$('deployError').textContent=await r.text();
+  }catch(e){if($('deployModal').classList.contains('on'))$('deployError').textContent=t('deploy.network')}
+  finally{deployPolling=false}
+}
+async function deploymentRequest(body){
+  if(deploySending)return;
+  deploySending=true;$('deployError').textContent='';renderDeployment();
+  try{
+    const r=await api('/api/servers/deploy',{method:'POST',body:JSON.stringify(body)});
+    if(!r.ok){
+      const error=await r.text();
+      $('deployError').textContent=r.status===409?t('deploy.busy'):error;
+      return;
+    }
+    $('deployPassword').value='';
+    deployDismissed='';
+    await updateDeployment(await r.json());
+  }catch(e){$('deployPassword').value='';$('deployError').textContent=t('deploy.network')}
+  finally{deploySending=false;renderDeployment();loadDeployment()}
+}
+$('deployOpen').onclick=$('deploySummary').onclick=()=>{$('deployModal').classList.add('on');renderDeployment();loadDeployment();$('deployClose').focus()};
+function closeDeployment(){$('deployModal').classList.remove('on');$('deployPassword').value='';$('deployOpen').focus()}
+$('deployClose').onclick=closeDeployment;
+$('deployModal').onclick=e=>{if(e.target.id==='deployModal')closeDeployment()};
+$('deployForm').onsubmit=e=>{
+  e.preventDefault();
+  if(deploymentBusy()||deploySending)return;
+  deploymentRequest({name:$('deployName').value.trim(),host:$('deployHost').value.trim(),ssh_port:Number($('deployPort').value),
+    username:$('deployUser').value.trim(),password:$('deployPassword').value,domain:$('deployDomain').value.trim(),
+    email:$('deployEmail').value.trim(),connect:$('deployConnect').checked});
+};
+$('deployTrustBtn').onclick=()=>{if(deployment&&deployment.state==='awaiting_host_key')deploymentRequest({id:deployment.id,trust:true})};
+$('deployCancel').onclick=()=>{if(deploymentBusy())deploymentRequest({id:deployment.id,cancel:true})};
+$('deployNew').onclick=()=>{
+  deployDismissed=deployment&&deployment.id||'';
+  $('deployForm').reset();$('deployError').textContent='';renderDeployment();$('deployHost').focus();
+};
+setInterval(()=>{if(deploymentBusy()||$('deployModal').classList.contains('on'))loadDeployment()},1000);
+
 /* ---- share ---- */
 let shareLinkText='', shareTitle='';
 async function copyText(x){
@@ -496,7 +721,7 @@ $('appsClear').onclick=()=>{
   if(!confirm(t('apps.confirm',cfg.apps.length)))return;
   cfg.apps=[];renderRules();saveCfg();
 };
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeAppsModal();closeInst();$('shareClose').onclick()}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeAppsModal();closeInst();$('shareClose').onclick();if($('deployModal').classList.contains('on'))closeDeployment()}});
 
 /* ---- pick from the installed applications ---- */
 let inst=null;
