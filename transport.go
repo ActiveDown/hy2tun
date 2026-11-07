@@ -124,6 +124,9 @@ func newHysteriaClient(l *hy2Link, ip net.IP, lazy bool) (client.Client, error) 
 			Auth:        l.Auth,
 			TLSConfig:   l.tlsConfig(),
 			ConnFactory: factory,
+			// IPv6 target fallback relies on TCP reporting the server's dial error
+			// before any application bytes are written to the returned connection.
+			FastOpen: false,
 		}, nil
 	}, func(_ client.Client, info *client.HandshakeInfo, n int) {
 		log.Printf("hysteria2 connected (attempt %d, udp relay: %v)", n, info.UDPEnabled)

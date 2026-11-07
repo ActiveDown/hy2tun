@@ -2,16 +2,19 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log"
 	"net"
 	"net/netip"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/apernet/hysteria/core/v2/client"
+	coreErrs "github.com/apernet/hysteria/core/v2/errors"
 	"golang.org/x/net/dns/dnsmessage"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
@@ -79,6 +82,29 @@ func (t *tunnel) nameFor(ip netip.Addr, sniName string) string {
 	return n
 }
 
+// dialTunnelTCP keeps the application's chosen address when it works. A server
+// without IPv6 may reject an IPv6 literal even though the same name has working
+// IPv4 addresses. Retry that name at the server before any application bytes are
+// sent. FastOpen must stay disabled so TCP reports upstream dial failures here.
+func (t *tunnel) dialTunnelTCP(dst, name string) (net.Conn, error) {
+	c, err := t.hc.TCP(dst)
+	var dialErr coreErrs.DialError
+	if err == nil || !errors.As(err, &dialErr) {
+		return c, err
+	}
+	host, port, splitErr := net.SplitHostPort(dst)
+	ip, parseErr := netip.ParseAddr(host)
+	name = strings.TrimSuffix(strings.TrimSpace(name), ".")
+	if splitErr != nil || parseErr != nil || !ip.Unmap().Is6() || name == "" ||
+		net.ParseIP(name) != nil || strings.ContainsAny(name, "[]:/\\ \t\r\n") {
+		return c, err
+	}
+	if t.verbose {
+		log.Printf("tcp %s [%s]: IPv6 dial failed, retrying by name: %v", dst, name, err)
+	}
+	return t.hc.TCP(net.JoinHostPort(name, port))
+}
+
 func (t *tunnel) handleTCP(req *tcp.ForwarderRequest) {
 	id := req.ID()
 	ip := addrOf(id.LocalAddress)
@@ -131,7 +157,7 @@ func (t *tunnel) handleTCP(req *tcp.ForwarderRequest) {
 			remote, err = t.direct.dialTCP(ctx, dst)
 			cancel()
 		} else {
-			remote, err = t.hc.TCP(dst)
+			remote, err = t.dialTunnelTCP(dst, name)
 		}
 		if err != nil {
 			t.tcpFail.Add(1)

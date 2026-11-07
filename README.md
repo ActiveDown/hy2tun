@@ -4,8 +4,9 @@ A Windows, macOS and Android client for [Hysteria 2](https://v2.hysteria.network
 **per-application routing** and a window in the style of Amnezia. Written in Go on top of the official
 `hysteria/core/v2` library.
 
-> **Version: 1.1.0.** The routing engine, UI, background daemon / Windows service,
-> and per-app routing rules have been exercised on Windows 11 and macOS (Apple Silicon & Intel).
+> **Windows and Android: 1.1.1. macOS: 1.1.0.** The 1.1.1 release reuses the
+> existing macOS packages without rebuilding them. Windows and Android include
+> the IPv6 connection fallback for servers without working IPv6 connectivity.
 
 ## Features
 
@@ -94,7 +95,7 @@ TUN, the app builds the interface with `VpnService` and hands over the file desc
 Tools → *NDK (Side by side)*) and JDK 17+ (the script uses the one bundled with Android Studio).
 
 ```bash
-./scripts/build_android.sh 1.1.0          # libraries + APK -> dist/Hy2Tun-1.1.0-android[-debug].apk
+./scripts/build_android.sh 1.1.1          # libraries + APK -> dist/Hy2Tun-1.1.1-android[-debug].apk
 ./scripts/build_android.sh --lib          # libraries only (then build/run from Android Studio)
 ```
 
@@ -165,7 +166,7 @@ if browser storage is unavailable. There are no external assets, databases or
 server writes for this page's user data.
 
 Windows release packages can also be cross-built on macOS/Linux using
-`./scripts/build_windows.sh 1.1.0`. It verifies the pinned Wintun DLL and writes a
+`./scripts/build_windows.sh 1.1.1`. It verifies the pinned Wintun DLL and writes a
 GUI installer, portable archive and `SHA256SUMS-windows.txt` to `dist/`.
 
 Portable (foreground, administrator / root rights needed):

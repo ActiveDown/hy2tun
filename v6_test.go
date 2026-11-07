@@ -48,7 +48,7 @@ func TestDirectUnavailableV6(t *testing.T) {
 	}
 	c := tn.rt.config()
 	c.ProxyRU = true
-	tn.rt.setConfig(c) // goes through the tunnel -> IPv6 works there
+	tn.rt.setConfig(c) // tunnel IPv6 depends on the server, not the physical adapter
 	if tn.directUnavailable(nil, ip6) {
 		t.Fatal("with proxy-ru on, v6 goes through the tunnel and must not be refused")
 	}
