@@ -4,7 +4,7 @@ A Windows, macOS and Android client for [Hysteria 2](https://v2.hysteria.network
 **per-application routing** and a window in the style of Amnezia. Written in Go on top of the official
 `hysteria/core/v2` library.
 
-> **Version: 1.0.0.** The routing engine, UI, background daemon / Windows service,
+> **Version: 1.1.0.** The routing engine, UI, background daemon / Windows service,
 > and per-app routing rules have been exercised on Windows 11 and macOS (Apple Silicon & Intel).
 
 ## Features
@@ -21,7 +21,7 @@ A Windows, macOS and Android client for [Hysteria 2](https://v2.hysteria.network
   The address list comes from the RIPE NCC delegated statistics (`tools/genru`).
 - **Other VPN clients go direct** (WireGuard, OpenVPN, Tailscale …), so a second VPN is not
   tunnelled into the first one.
-- **Windows service** (automatic, delayed start, restart on failure) + a **desktop window and
+- **Windows service** (immediate automatic start, restart on failure) + a **desktop window and
   tray icon**; the window needs no administrator rights.
 - **Reconnects** after a network change (Wi-Fi ↔ cable, new gateway) and after sleep.
 - **DNS leak protection** and an optional **kill switch** for the selected apps, implemented
@@ -59,7 +59,7 @@ Requires Go 1.27+.
 go build -trimpath -ldflags "-s -w" -o hy2tun .
 
 # Or build a Universal release (Apple Silicon + Intel): Hy2Tun.app, .zip, .tar.gz and the .pkg installer in dist/
-./scripts/build_darwin.sh 1.0.0
+./scripts/build_darwin.sh 1.1.0
 ```
 
 The `.pkg` installs `Hy2Tun.app` into `/Applications` and the launchd service (`packaging/macos/scripts/postinstall`).
@@ -94,7 +94,7 @@ TUN, the app builds the interface with `VpnService` and hands over the file desc
 Tools → *NDK (Side by side)*) and JDK 17+ (the script uses the one bundled with Android Studio).
 
 ```bash
-./scripts/build_android.sh 1.0.0          # libraries + APK -> dist/Hy2Tun-1.0.0-android[-debug].apk
+./scripts/build_android.sh 1.1.0          # libraries + APK -> dist/Hy2Tun-1.1.0-android[-debug].apk
 ./scripts/build_android.sh --lib          # libraries only (then build/run from Android Studio)
 ```
 
@@ -165,7 +165,7 @@ if browser storage is unavailable. There are no external assets, databases or
 server writes for this page's user data.
 
 Windows release packages can also be cross-built on macOS/Linux using
-`./scripts/build_windows.sh 1.0.0`. It verifies the pinned Wintun DLL and writes a
+`./scripts/build_windows.sh 1.1.0`. It verifies the pinned Wintun DLL and writes a
 GUI installer, portable archive and `SHA256SUMS-windows.txt` to `dist/`.
 
 Portable (foreground, administrator / root rights needed):
@@ -261,3 +261,11 @@ All dependencies are permissively licensed and compatible with the MIT License:
   [go-qrcode](https://github.com/skip2/go-qrcode) — MIT
 - [Wintun](https://www.wintun.net/) (`wintun.dll`, downloaded separately) — see its own license terms
 - The Russian address list is derived from the public RIPE NCC delegated statistics.
+
+### Windows service startup
+
+The installed service uses immediate automatic startup. If it is stopped, the desktop
+window/tray requests a start without administrator elevation. Install/update with
+the setup executable to apply the service settings and start/query permissions.
+The waiting screen shows the SCM state and startup errors; a missing service
+requires reinstalling. Service readiness does not depend on VPN server availability.

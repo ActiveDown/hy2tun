@@ -51,6 +51,10 @@ func startAPI(e *Engine, listen string, secure bool) (*apiServer, string, error)
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", a.page)
+	// Readiness must not hash the executable or wait on tunnel/provisioning state.
+	mux.HandleFunc("/api/health", a.guard(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]bool{"ready": true})
+	}))
 	mux.HandleFunc("/api/state", a.guard(a.state))
 	mux.HandleFunc("/api/config", a.guard(a.config))
 	mux.HandleFunc("/api/processes", a.guard(a.processes))

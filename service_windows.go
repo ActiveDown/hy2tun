@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -30,7 +31,9 @@ type serviceHandler struct {
 }
 
 func (h *serviceHandler) Execute(_ []string, req <-chan svc.ChangeRequest, st chan<- svc.Status) (bool, uint32) {
-	st <- svc.Status{State: svc.StartPending}
+	started := time.Now()
+	finishStartup := reportServiceStartup(st)
+	defer finishStartup()
 	c, _ := parseFlags(h.args)
 	dir, portable := resolveDataDir(c.data)
 	ring, closeLog := setupLogging(dir, true)
@@ -47,13 +50,17 @@ func (h *serviceHandler) Execute(_ []string, req <-chan svc.ChangeRequest, st ch
 	}
 	defer api.close()
 
+	finishStartup()
+	st <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
+	log.Printf("service ready, API %s (startup %s)", c.ui, time.Since(started).Round(time.Millisecond))
 	if e.store.autoConnect() {
 		if srv, ok := e.store.get(""); ok {
 			log.Printf("auto-connect to %s", srv.Name)
-			e.Connect(srv.ID)
+			if err := e.Connect(srv.ID); err != nil {
+				log.Printf("auto-connect: %v", err)
+			}
 		}
 	}
-	st <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
 	for r := range req {
 		switch r.Cmd {
 		case svc.Interrogate:
@@ -66,6 +73,34 @@ func (h *serviceHandler) Execute(_ []string, req <-chan svc.ChangeRequest, st ch
 		}
 	}
 	return false, 0
+}
+
+// Keep SCM informed during cold starts (disk/antivirus scanning can be slow).
+// Stop and join the reporter before RUNNING: no late START_PENDING may follow it.
+func reportServiceStartup(st chan<- svc.Status) func() {
+	done, exited := make(chan struct{}), make(chan struct{})
+	st <- svc.Status{State: svc.StartPending, CheckPoint: 1, WaitHint: 30000}
+	go func() {
+		defer close(exited)
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		checkpoint := uint32(1)
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				checkpoint++
+				select {
+				case st <- svc.Status{State: svc.StartPending, CheckPoint: checkpoint, WaitHint: 30000}:
+				case <-done:
+					return
+				}
+			}
+		}
+	}()
+	var once sync.Once
+	return func() { once.Do(func() { close(done); <-exited }) }
 }
 
 func cmdService(args []string) {
@@ -102,7 +137,7 @@ func requireAdmin() {
 	os.Exit(1)
 }
 
-// cmdInstall registers the service (automatic, delayed start, restart on
+// cmdInstall registers the service (automatic, immediate start, restart on
 // failure) and the per-user tray autostart, then starts the service.
 func cmdInstall(args []string) {
 	requireAdmin()
@@ -127,28 +162,59 @@ func cmdInstall(args []string) {
 	}
 	defer m.Disconnect()
 
-	if s, err := m.OpenService(serviceName); err == nil {
-		s.Control(svc.Stop)
-		time.Sleep(time.Second)
-		s.Delete()
-		s.Close()
-		time.Sleep(time.Second)
+	cfg := mgr.Config{
+		DisplayName: "Hy2Tun", Description: serviceDesc,
+		ServiceType: windows.SERVICE_WIN32_OWN_PROCESS,
+		StartType:   mgr.StartAutomatic, ErrorControl: mgr.ErrorNormal,
+		DelayedAutoStart: false,
 	}
-	s, err := m.CreateService(serviceName, exe, mgr.Config{
-		DisplayName:      "Hy2Tun",
-		Description:      serviceDesc,
-		StartType:        mgr.StartAutomatic,
-		DelayedAutoStart: true,
-	}, append([]string{"service"}, args...)...)
-	if err != nil {
-		log.Fatalf("create service: %v", err)
+	serviceArgs := append([]string{"service"}, args...)
+	cfg.BinaryPathName = syscall.EscapeArg(exe)
+	for _, arg := range serviceArgs {
+		cfg.BinaryPathName += " " + syscall.EscapeArg(arg)
 	}
-	defer s.Close()
-	s.SetRecoveryActions([]mgr.RecoveryAction{
+	s, err := m.OpenService(serviceName)
+	if err == nil {
+		defer s.Close()
+		st, queryErr := s.Query()
+		if queryErr != nil {
+			log.Fatal(queryErr)
+		}
+		if st.State != svc.Stopped {
+			if st.State != svc.StopPending {
+				if _, err := s.Control(svc.Stop); err != nil {
+					log.Fatalf("stop service: %v", err)
+				}
+			}
+			if err := waitServiceState(s, svc.Stopped, 30*time.Second); err != nil {
+				log.Fatal(err)
+			}
+		}
+		if err := s.UpdateConfig(cfg); err != nil {
+			log.Fatalf("update service: %v", err)
+		}
+	} else if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
+		s, err = m.CreateService(serviceName, exe, cfg, serviceArgs...)
+		if err != nil {
+			log.Fatalf("create service: %v", err)
+		}
+		defer s.Close()
+	} else {
+		log.Fatalf("open service: %v", err)
+	}
+	if err := allowServiceStart(s); err != nil {
+		log.Fatalf("service start permissions: %v", err)
+	}
+	if err := s.SetRecoveryActions([]mgr.RecoveryAction{
 		{Type: mgr.ServiceRestart, Delay: 5 * time.Second},
 		{Type: mgr.ServiceRestart, Delay: 15 * time.Second},
 		{Type: mgr.ServiceRestart, Delay: 60 * time.Second},
-	}, 86400)
+	}, 86400); err != nil {
+		log.Fatalf("service recovery: %v", err)
+	}
+	if err := s.SetRecoveryActionsOnNonCrashFailures(true); err != nil {
+		log.Fatalf("service recovery flag: %v", err)
+	}
 
 	// tray / window for every user at logon
 	if k, _, err := registry.CreateKey(registry.LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows\CurrentVersion\Run`, registry.SET_VALUE); err == nil {
@@ -156,7 +222,10 @@ func cmdInstall(args []string) {
 		k.Close()
 	}
 	if err := s.Start(); err != nil {
-		log.Printf("service installed, start failed: %v", err)
+		log.Fatalf("service installed, start failed: %v", err)
+	}
+	if err := waitServiceState(s, svc.Running, 30*time.Second); err != nil {
+		log.Fatalf("service startup: %v", err)
 	}
 	fmt.Println(tr("Служба Hy2Tun установлена и запущена. Окно: Hy2Tun gui", "The Hy2Tun service is installed and running. Open the window with: Hy2Tun gui"))
 	if !quiet {

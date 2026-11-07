@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 type apiHarness struct {
@@ -295,5 +296,37 @@ func TestDiagBundleOffline(t *testing.T) {
 	}
 	if !strings.Contains(all.String(), "example.com:443") {
 		t.Error("server host missing from servers.txt")
+	}
+}
+
+// Health must stay responsive even when an engine/store operation blocks state.
+func TestAPIHealthDoesNotWaitForEngine(t *testing.T) {
+	h := newAPIHarness(t)
+	h.e.mu.Lock()
+	defer h.e.mu.Unlock()
+	h.e.store.mu.Lock()
+	defer h.e.store.mu.Unlock()
+	client := &http.Client{Timeout: 2 * time.Second}
+	req, _ := http.NewRequest("GET", h.base+"/api/health", nil)
+	req.Header.Set("X-Token", h.token)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var data struct {
+		Ready bool `json:"ready"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil || resp.StatusCode != 200 || !data.Ready {
+		t.Fatalf("health: %d %+v %v", resp.StatusCode, data, err)
+	}
+	req.Header.Del("X-Token")
+	unauth, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unauth.Body.Close()
+	if unauth.StatusCode != http.StatusForbidden {
+		t.Fatalf("health without token: %d", unauth.StatusCode)
 	}
 }

@@ -5,6 +5,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -24,6 +25,7 @@ import (
 	"github.com/ActiveDown/hy2tun/internal/winui"
 	"github.com/jchv/go-webview2"
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/svc"
 )
 
 const (
@@ -37,12 +39,14 @@ type gui struct {
 	dir     string
 	apiAddr string
 
-	mu        sync.Mutex
-	windowOn  bool
-	connectMI *systray.MenuItem
-	openMI    *systray.MenuItem
-	quitMI    *systray.MenuItem
-	lastState string
+	mu               sync.Mutex
+	windowOn         bool
+	connectMI        *systray.MenuItem
+	openMI           *systray.MenuItem
+	quitMI           *systray.MenuItem
+	lastState        string
+	nextServiceStart time.Time
+	serviceStartErr  error
 }
 
 func (g *gui) token() string {
@@ -75,19 +79,63 @@ func (g *gui) call(method, path string, body any) ([]byte, error) {
 }
 
 func (g *gui) serviceUp() bool {
-	_, err := g.call("GET", "/api/state", nil)
+	_, err := g.call("GET", "/api/health", nil)
 	return err == nil
 }
 
 func (g *gui) pageURL() string { return "http://" + g.apiAddr + "/?t=" + g.token() }
 
+// Called by the tray as well as the window, so a delayed/stopped service is
+// started even when Windows launches the GUI minimized at logon.
+func (g *gui) ensureService() {
+	g.mu.Lock()
+	if time.Now().Before(g.nextServiceStart) {
+		g.mu.Unlock()
+		return
+	}
+	g.nextServiceStart = time.Now().Add(15 * time.Second)
+	g.mu.Unlock()
+	err := startInstalledService()
+	g.mu.Lock()
+	g.serviceStartErr = err
+	g.mu.Unlock()
+}
+
+func (g *gui) serviceMessage() string {
+	st, err := queryServiceStatus()
+	if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
+		return tr("Служба Hy2Tun не установлена. Запустите установщик заново.", "The Hy2Tun service is not installed. Run the installer again.")
+	}
+	if err != nil {
+		return fmt.Sprintf("%s: %v", tr("Не удалось проверить службу", "Cannot query the service"), err)
+	}
+	g.mu.Lock()
+	startErr := g.serviceStartErr
+	g.mu.Unlock()
+	switch st.State {
+	case svc.StartPending:
+		return tr("Windows запускает службу Hy2Tun…", "Windows is starting the Hy2Tun service…")
+	case svc.StopPending:
+		return tr("Служба Hy2Tun останавливается…", "The Hy2Tun service is stopping…")
+	case svc.Running:
+		return tr("Служба запущена, ожидаем ответ интерфейса. Если ожидание затянулось, сохраните журнал из ProgramData\\Hy2Tun.", "The service is running; waiting for its control API. If this persists, check the log in ProgramData\\Hy2Tun.")
+	default:
+		if startErr != nil {
+			return fmt.Sprintf("%s: %v", tr("Не удалось запустить службу", "Cannot start the service"), startErr)
+		}
+		return fmt.Sprintf("%s (Windows: %d, Hy2Tun: %d)", tr("Служба остановлена, пытаемся запустить…", "The service is stopped; trying to start it…"), st.Win32ExitCode, st.ServiceSpecificExitCode)
+	}
+}
+
 func waitingHTML() string {
-	title := tr("Служба Hy2Tun не отвечает", "The Hy2Tun service is not responding")
-	body := tr("Она запускается вместе с Windows. Если вы только что установили программу, подождите несколько секунд — окно откроется само.",
-		"It starts together with Windows. If you have just installed the program, wait a few seconds — the window will open by itself.")
+	title := tr("Подключение к службе Hy2Tun", "Connecting to the Hy2Tun service")
+	body := tr("Проверяем состояние службы…", "Checking the service status…")
+	button := tr("Запустить службу", "Start the service")
 	return `<!doctype html><meta charset="utf-8"><body style="margin:0;height:100vh;display:grid;place-items:center;background:#0e1015;color:#eceff5;font:15px 'Segoe UI',sans-serif;text-align:center">
 <div><div style="width:40px;height:40px;border-radius:12px;margin:0 auto 14px;background:linear-gradient(135deg,#7a5cff,#00c2ff)"></div>
-<b>` + title + `</b><p style="color:#8b93a5;max-width:340px">` + body + `</p></div></body>`
+<b>` + title + `</b><p id="status" style="color:#8b93a5;max-width:340px">` + body + `</p>
+<button onclick="hy2StartService().then(refresh)" style="padding:10px;border-radius:8px;cursor:pointer">` + button + `</button></div>
+<script>function refresh(){hy2ServiceStatus().then(s=>document.getElementById('status').textContent=s).catch(()=>{});}refresh();setInterval(refresh,1000);</script></body>`
 }
 
 // openWindow shows the UI window; it is a no-op while one is already open.
@@ -129,14 +177,37 @@ func (g *gui) openWindow() {
 				exec.Command("explorer.exe", "/select,"+p).Start()
 			}
 		})
+		w.Bind("hy2ServiceStatus", g.serviceMessage)
+		w.Bind("hy2StartService", func() {
+			err := startInstalledService()
+			if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+				// Old installations did not grant SERVICE_START to the desktop user.
+				// Elevation is only requested in response to this explicit button click.
+				verb, _ := windows.UTF16PtrFromString("runas")
+				file, _ := windows.UTF16PtrFromString(filepath.Join(os.Getenv("SystemRoot"), "System32", "sc.exe"))
+				args, _ := windows.UTF16PtrFromString("start " + serviceName)
+				err = windows.ShellExecute(0, verb, file, args, nil, windows.SW_HIDE)
+			}
+			g.mu.Lock()
+			g.serviceStartErr = err
+			g.mu.Unlock()
+		})
 		w.SetSize(460, 800, webview2.HintNone)
+		done := make(chan struct{})
+		defer close(done)
 		if g.serviceUp() {
 			w.Navigate(g.pageURL())
 		} else {
 			w.SetHtml(waitingHTML())
 			go func() { // navigate as soon as the service answers
-				for i := 0; i < 600; i++ {
-					time.Sleep(time.Second)
+				ticker := time.NewTicker(time.Second)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-done:
+						return
+					case <-ticker.C:
+					}
 					if g.serviceUp() {
 						w.Dispatch(func() { w.Navigate(g.pageURL()) })
 						return
@@ -267,6 +338,9 @@ func (g *gui) poll() {
 			if json.Unmarshal(b, &d) == nil {
 				state, name, svcLang = d.Status.State, d.Status.Server, d.Lang
 			}
+		}
+		if state == "unreachable" {
+			g.ensureService()
 		}
 		langChanged := false
 		if l := normalizeLang(svcLang); l != "" && l != lang() {

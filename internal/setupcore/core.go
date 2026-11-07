@@ -188,7 +188,7 @@ var installSteps = []step{
 		return nil
 	}},
 	{"Устанавливаем и запускаем службу…", "Installing and starting the service…", nil, func(in *installer) error {
-		return run(in.target, "install", "quiet") // service (delayed automatic start) + tray autostart
+		return run(in.target, "install", "quiet") // service (immediate automatic start) + tray autostart
 	}},
 	{"Создаём ярлык в меню «Пуск»…", "Creating the Start menu shortcut…", nil, func(in *installer) error {
 		ps := fmt.Sprintf(`$s=(New-Object -ComObject WScript.Shell).CreateShortcut('%s');$s.TargetPath='%s';$s.Arguments='gui';$s.WorkingDirectory='%s';$s.IconLocation='%s,0';$s.Description='Hy2Tun';$s.Save()`,
