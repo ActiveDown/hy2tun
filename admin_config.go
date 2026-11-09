@@ -163,7 +163,7 @@ func confTrafficStats(root *yaml.Node) (listen, secret string, ok bool) {
 	if n := confMapValue(ts, "secret"); n != nil && n.Kind == yaml.ScalarNode {
 		secret = n.Value
 	}
-	return listen, secret, true
+	return listen, secret, listen != ""
 }
 
 // confSetTrafficStats adds or replaces the Traffic Stats section.

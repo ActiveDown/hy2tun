@@ -89,16 +89,30 @@ func (s *adminStore) set(id string, c adminCredential) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c.SavedAt = time.Now().Unix()
+	old, existed := s.creds[id]
 	s.creds[id] = c
-	return s.saveLocked()
+	if err := s.saveLocked(); err != nil {
+		if existed {
+			s.creds[id] = old
+		} else {
+			delete(s.creds, id)
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *adminStore) remove(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.creds[id]; !ok {
+	old, ok := s.creds[id]
+	if !ok {
 		return nil
 	}
 	delete(s.creds, id)
-	return s.saveLocked()
+	if err := s.saveLocked(); err != nil {
+		s.creds[id] = old
+		return err
+	}
+	return nil
 }

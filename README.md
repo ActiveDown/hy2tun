@@ -4,9 +4,9 @@ A Windows, macOS and Android client for [Hysteria 2](https://v2.hysteria.network
 **per-application routing** and a window in the style of Amnezia. Written in Go on top of the official
 `hysteria/core/v2` library.
 
-> **Windows and Android: 1.1.1. macOS: 1.1.0.** The 1.1.1 release reuses the
-> existing macOS packages without rebuilding them. Windows and Android include
-> the IPv6 connection fallback for servers without working IPv6 connectivity.
+> **Windows and Android: 1.2.0. macOS: 1.1.0.** Windows and Android include
+> the repaired SSH admin panel and the IPv6 connection fallback. The existing
+> macOS packages are unchanged; they do not include these newer features.
 
 ## Features
 
@@ -101,9 +101,14 @@ TUN, the app builds the interface with `VpnService` and hands over the file desc
 Tools → *NDK (Side by side)*) and JDK 17+ (the script uses the one bundled with Android Studio).
 
 ```bash
-./scripts/build_android.sh 1.1.1          # libraries + APK -> dist/Hy2Tun-1.1.1-android[-debug].apk
+./scripts/build_android.sh 1.2.0          # libraries + APK -> dist/Hy2Tun-1.2.0-android[-debug].apk
 ./scripts/build_android.sh --lib          # libraries only (then build/run from Android Studio)
 ```
+
+On Windows, use `scripts/build_android.ps1 -Version 1.2.0 -AndroidSdk <sdk> -Jdk <jdk>`
+with SDK 36, build-tools 36.0.0 and NDK 27.0.12077973 installed. The same three
+ABIs are built. Without the original release keystore, the output is a debug APK
+and cannot be assumed to update an existing release installation.
 
 Without `android/keystore.properties` (`storeFile`, `storePassword`, `keyAlias`, `keyPassword`)
 the debug APK is built; with it, the signed release APK.
@@ -147,9 +152,10 @@ or passwordless sudo. The domain's DNS A records must point to the VPS; TCP 80/4
 and UDP 443 must be available, including in the provider's firewall.
 
 The app asks you to confirm a new SSH host-key fingerprint before sending the
-password. It saves that public key and rejects unexpected changes. SSH passwords
-are used in memory for one deployment and are not saved. A separate random VPN
-password is generated for each server.
+password. It saves that public key and rejects unexpected changes. With "Save
+the SSH access for the admin panel" enabled (the default), SSH access is kept
+in the protected local app data; disable it to use the password only during
+deployment. A separate random VPN password is generated for each server.
 
 Deployment installs Hysteria 2.13.0, obtains and renews a Let's Encrypt certificate,
 enables startup through systemd, and configures UFW while preserving the SSH port.
@@ -172,7 +178,7 @@ if browser storage is unavailable. There are no external assets, databases or
 server writes for this page's user data.
 
 Windows release packages can also be cross-built on macOS/Linux using
-`./scripts/build_windows.sh 1.1.1`. It verifies the pinned Wintun DLL and writes a
+`./scripts/build_windows.sh 1.2.0`. It verifies the pinned Wintun DLL and writes a
 GUI installer, portable archive and `SHA256SUMS-windows.txt` to `dist/`.
 
 Portable (foreground, administrator / root rights needed):

@@ -90,7 +90,7 @@ func startAPI(e *Engine, listen string, secure bool) (*apiServer, string, error)
 	return a, "http://" + ln.Addr().String() + "/?t=" + a.token, nil
 }
 
-func (a *apiServer) close() { a.deploy.close(); a.srv.Close() }
+func (a *apiServer) close() { a.deploy.close(); a.srv.Close(); a.admin.close() }
 
 func (a *apiServer) serverDeploy(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
@@ -255,7 +255,7 @@ func (a *apiServer) serverDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	a.e.admin.remove(body.ID) // forget the admin-panel SSH access as well
+	a.admin.Detach(body.ID) // forget the access and close its SSH connection
 	writeJSON(w, a.e.serverViews(st.ServerID))
 }
 

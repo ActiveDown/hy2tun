@@ -36,10 +36,20 @@ type adminManager struct {
 	e     *Engine
 	mu    sync.Mutex // one SSH operation at a time
 	dial  func(context.Context, string) (net.Conn, error)
-	cur   *ssh.Client // cached connection of the currently managed server
+	cur   *adminSSHClient // cached connection of the currently managed server
 	curID string
 	idle  time.Time
 }
+
+type adminSSHClient struct {
+	*ssh.Client
+	conn net.Conn // deadlines are renewed per command, never per connection lifetime
+}
+
+const (
+	adminConnectTimeout = 15 * time.Second
+	adminCommandTimeout = 30 * time.Second
+)
 
 func newAdminManager(e *Engine) *adminManager {
 	return &adminManager{e: e, dial: e.provisionDial}
@@ -67,9 +77,10 @@ type adminUser struct {
 }
 
 type adminUsersResult struct {
-	Users []adminUser `json:"users"`
-	Stats bool        `json:"stats"`
-	Auth  string      `json:"auth,omitempty"`
+	Users      []adminUser `json:"users"`
+	Stats      bool        `json:"stats"`
+	Auth       string      `json:"auth,omitempty"`
+	StatsError string      `json:"stats_error,omitempty"`
 }
 
 type userTraffic struct {
@@ -91,12 +102,13 @@ func trErr(ru, en string) error { return errors.New(tr(ru, en)) }
 // adminConnectRequest is the SSH access pasted into the admin panel (or
 // confirmed by the "trust" round-trip).
 type adminConnectRequest struct {
-	ID       string `json:"id"`
-	Host     string `json:"host"`
-	Port     int    `json:"ssh_port"`
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Trust    bool   `json:"trust"`
+	ID          string `json:"id"`
+	Host        string `json:"host"`
+	Port        int    `json:"ssh_port"`
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+	Trust       bool   `json:"trust"`
+	Fingerprint string `json:"fingerprint"`
 }
 
 func (r *adminConnectRequest) normalize() error {
@@ -152,7 +164,9 @@ func adminRelErr(err error) string {
 // connect dials SSH with the same host-key discipline as deployment: the
 // address is resolved once, the key must be known, and an unknown key needs
 // an explicit trust confirmation (fingerprint round-trip to the UI).
-func (m *adminManager) connect(ctx context.Context, c adminCredential, trust bool) (*ssh.Client, error) {
+func (m *adminManager) connect(ctx context.Context, c adminCredential, trustedFingerprint string) (*adminSSHClient, error) {
+	ctx, cancel := context.WithTimeout(ctx, adminConnectTimeout)
+	defer cancel()
 	ips, err := net.DefaultResolver.LookupIP(ctx, "ip4", c.Host)
 	if err != nil || len(ips) == 0 {
 		return nil, errors.New(tr("Не удалось определить IPv4-адрес сервера.", "Could not resolve the server's IPv4 address."))
@@ -163,7 +177,10 @@ func (m *adminManager) connect(ctx context.Context, c adminCredential, trust boo
 		return nil, errors.New(tr("Не удалось подключиться по SSH. Проверьте адрес, порт и доступность сервера.",
 			"Could not reach SSH. Check the address, port and server connectivity."))
 	}
-	conn.SetDeadline(time.Now().Add(3 * time.Minute))
+	deadline, _ := ctx.Deadline()
+	conn.SetDeadline(deadline)
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	defer stop()
 	keyID := net.JoinHostPort(c.Host, strconv.Itoa(c.Port))
 	known, err := loadSSHHostKeys(m.e.dir)
 	if err != nil {
@@ -182,9 +199,14 @@ func (m *adminManager) connect(ctx context.Context, c adminCredential, trust boo
 			}
 			return nil
 		}
-		if !trust {
+		if trustedFingerprint == "" {
 			hostError = adminTrustMarker + fingerprint
 			return errors.New("unknown host key")
+		}
+		if trustedFingerprint != fingerprint {
+			hostError = tr("SSH-ключ не совпадает с подтверждённым отпечатком. Подключитесь заново.",
+				"The SSH key does not match the confirmed fingerprint. Connect again.")
+			return errors.New("host key confirmation mismatch")
 		}
 		return nil
 	}}
@@ -202,22 +224,24 @@ func (m *adminManager) connect(ctx context.Context, c adminCredential, trust boo
 		return nil, errors.New(tr("Ошибка SSH-аутентификации. Проверьте логин и пароль SSH.",
 			"SSH authentication failed. Check the SSH username and password."))
 	}
-	if trust && known[keyID] == "" && receivedKey != "" {
+	if trustedFingerprint != "" && known[keyID] == "" && receivedKey != "" {
 		known[keyID] = receivedKey
 		if err = saveSSHHostKeys(m.e.dir, known, m.e.store.secure); err != nil {
 			cc.Close()
 			return nil, errors.New(tr("Не удалось сохранить SSH-ключ сервера.", "Could not save the SSH host key."))
 		}
 	}
-	conn.SetDeadline(time.Now().Add(90 * time.Second))
-	return ssh.NewClient(cc, chans, requests), nil
+	conn.SetDeadline(time.Time{})
+	return &adminSSHClient{Client: ssh.NewClient(cc, chans, requests), conn: conn}, nil
 }
 
 // exec runs a script over stdin and scans the result markers:
 //
 //	HY2TUN_ERROR:<code>  — a guarded failure, translated on the app side
 //	HY2TUN_PAYLOAD       — everything after this line is the answer
-func (m *adminManager) exec(cc *ssh.Client, username, script string) (string, string, error) {
+func (m *adminManager) exec(cc *adminSSHClient, username, script string) (string, string, error) {
+	cc.conn.SetDeadline(time.Now().Add(adminCommandTimeout))
+	defer cc.conn.SetDeadline(time.Time{})
 	sess, err := cc.NewSession()
 	if err != nil {
 		return "", "", err
@@ -269,6 +293,15 @@ func (m *adminManager) exec(cc *ssh.Client, username, script string) (string, st
 // adminSSHError explains a failing remote exec. The SSH password was already
 // accepted at this point; the wording must not cast doubt on it.
 func adminSSHError(err error) string {
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return tr("Сервер не ответил на SSH-команду вовремя. Проверьте соединение и повторите запрос.",
+			"The server did not answer the SSH command in time. Check connectivity and retry.")
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
+		return tr("SSH-соединение оборвалось. Повторите запрос для переподключения.",
+			"The SSH connection was lost. Retry to reconnect.")
+	}
 	detail := ""
 	if e, ok := err.(*ssh.ExitError); ok {
 		detail = adminExitDetail(e.ExitStatus())
@@ -315,8 +348,11 @@ func adminOpsError(code string) string {
 		return tr("Не удалось перезапустить hysteria-server. Изменения применятся при следующем рестарте.",
 			"Could not restart hysteria-server. The changes apply on the next restart.")
 	case "service_down":
-		return tr("Служба не поднялась после применения настроек. На сервере осталась резервная копия конфигурации.",
-			"The service did not come back up after applying the settings. A configuration backup remains on the server.")
+		return tr("Служба не приняла изменения. Предыдущая конфигурация восстановлена.",
+			"The service rejected the changes. The previous configuration was restored.")
+	case "rollback_failed":
+		return tr("Не удалось восстановить службу после изменения. Проверьте hysteria-server и резервную копию config.yaml на сервере.",
+			"Could not restore the service after the change. Check hysteria-server and the config.yaml backup on the server.")
 	case "stats_unavailable":
 		return tr("Traffic Stats API недоступен: он не включён на сервере или порт изменён.",
 			"The Traffic Stats API is unavailable: it is not enabled on the server or its port has changed.")
@@ -334,19 +370,20 @@ const adminIdleKeep = 2 * time.Minute
 // acquire returns a cached and still-answering connection for id, or dials a
 // fresh one. Servers throttle rapid unauthenticated SSH handshakes (MaxStartups
 // and hoster guards): the panel keeps one connection across poll cycles.
-func (m *adminManager) acquire(id string, c adminCredential) (*ssh.Client, error) {
+func (m *adminManager) acquire(id string, c adminCredential) (*adminSSHClient, error) {
 	if m.cur != nil && m.curID == id && time.Since(m.idle) < adminIdleKeep {
-		if _, code, werr := m.exec(m.cur, c.Username, adminScriptPing()); werr == nil && code == "" {
+		m.cur.conn.SetDeadline(time.Now().Add(5 * time.Second))
+		_, _, err := m.cur.SendRequest("keepalive@openssh.com", true, nil)
+		m.cur.conn.SetDeadline(time.Time{})
+		if err == nil {
 			m.idle = time.Now()
 			return m.cur, nil
 		}
-		m.cur.Close()
-		m.cur = nil
-		m.curID = ""
 	}
-	ctx, cancel := adminCtx(90 * time.Second)
+	m.drop(m.cur)
+	ctx, cancel := adminCtx(adminConnectTimeout)
 	defer cancel()
-	cc, err := m.connect(ctx, c, true)
+	cc, err := m.connect(ctx, c, "")
 	if err != nil {
 		return nil, err
 	}
@@ -355,20 +392,27 @@ func (m *adminManager) acquire(id string, c adminCredential) (*ssh.Client, error
 }
 
 // drop discards the cached connection: on any failure inside an operation.
-func (m *adminManager) drop(cc *ssh.Client) {
+func (m *adminManager) drop(cc *adminSSHClient) {
+	if cc == nil {
+		return
+	}
 	if cc != m.cur {
-		if cc != nil {
-			cc.Close()
-		}
+		cc.Close()
 		return
 	}
 	cc.Close()
 	m.cur, m.curID = nil, ""
 }
 
+func (m *adminManager) close() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.drop(m.cur)
+}
+
 // withSSH runs op with a cached or fresh connection; on success the
 // connection stays cached for later polls, on error it is dropped.
-func (m *adminManager) withSSH(id string, c adminCredential, op func(*ssh.Client) error) error {
+func (m *adminManager) withSSH(id string, c adminCredential, op func(*adminSSHClient) error) error {
 	cc, err := m.acquire(id, c)
 	if err != nil {
 		return errors.New(adminRelErr(err))
@@ -395,7 +439,7 @@ func (m *adminManager) serverCert(id string) (Server, adminCredential, error) {
 }
 
 // readConfig fetches /etc/hysteria/config.yaml and parses it.
-func (m *adminManager) readConfig(cc *ssh.Client, c adminCredential) (*yaml.Node, error) {
+func (m *adminManager) readConfig(cc *adminSSHClient, c adminCredential) (*yaml.Node, error) {
 	payload, code, werr := m.exec(cc, c.Username, adminScriptReadConfig())
 	if code != "" {
 		return nil, errors.New(adminOpsError(code))
@@ -405,15 +449,15 @@ func (m *adminManager) readConfig(cc *ssh.Client, c adminCredential) (*yaml.Node
 	}
 	root, err := confParse(payload)
 	if err != nil {
-		return nil, errors.New(tr("Не удалось разобрать config.yaml сервера: ", "Could not parse the server's config.yaml: ") + err.Error())
+		return nil, trErr("Не удалось разобрать config.yaml сервера.", "Could not parse the server's config.yaml.")
 	}
 	return root, nil
 }
 
 // probe queries the Traffic Stats API from the server itself (curl on the
 // loopback) and returns the raw JSON.
-func (m *adminManager) probe(cc *ssh.Client, c adminCredential, path string) (string, error) {
-	if c.StatsSecret == "" {
+func (m *adminManager) probe(cc *adminSSHClient, c adminCredential, path string) (string, error) {
+	if c.StatsPort == 0 {
 		return "", trErr("Статистика трафика ещё не включена.", "Traffic statistics are not enabled yet.")
 	}
 	payload, code, werr := m.exec(cc, c.Username, adminScriptProbe(c.StatsPort, c.StatsSecret, path))
@@ -428,7 +472,7 @@ func (m *adminManager) probe(cc *ssh.Client, c adminCredential, path string) (st
 
 // writeAndRestart pushes the new config: the script backs up, rewrites,
 // restarts the unit and verifies that it is active again.
-func (m *adminManager) writeAndRestart(cc *ssh.Client, c adminCredential, root *yaml.Node) error {
+func (m *adminManager) writeAndRestart(cc *adminSSHClient, c adminCredential, root *yaml.Node) error {
 	body, err := confEncode(root)
 	if err != nil {
 		return err
@@ -453,25 +497,28 @@ func (m *adminManager) Status(id string) adminStatus {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if err := m.withSSH(id, cred, func(cc *ssh.Client) error {
-		if payload, _, werr := m.exec(cc, cred.Username, adminScriptStatus()); werr == nil {
-			for _, line := range strings.Split(payload, "\n") {
-				switch {
-				case strings.HasPrefix(line, "service="):
-					st.Service = strings.TrimPrefix(line, "service=")
-				case strings.HasPrefix(line, "config="):
-					st.Config = strings.TrimPrefix(line, "config=")
-				case strings.HasPrefix(line, "version="):
-					st.Version = strings.TrimPrefix(line, "version=")
-				}
+	if err := m.withSSH(id, cred, func(cc *adminSSHClient) error {
+		st.SSH = true
+		payload, code, werr := m.exec(cc, cred.Username, adminScriptStatus())
+		if code != "" {
+			return errors.New(adminOpsError(code))
+		}
+		if werr != nil {
+			return errors.New(adminSSHError(werr))
+		}
+		meta, cfgText, _ := strings.Cut(payload, "HY2TUN_CONFIG\n")
+		for _, line := range strings.Split(meta, "\n") {
+			switch {
+			case strings.HasPrefix(line, "service="):
+				st.Service = strings.TrimPrefix(line, "service=")
+			case strings.HasPrefix(line, "config="):
+				st.Config = strings.TrimPrefix(line, "config=")
+			case strings.HasPrefix(line, "version="):
+				st.Version = strings.TrimPrefix(line, "version=")
 			}
 		}
-		cfgText, code, werr := m.exec(cc, cred.Username, adminScriptReadConfig())
-		switch {
-		case code != "":
-			return errors.New(adminOpsError(code))
-		case werr != nil:
-			return errors.New(adminSSHError(werr))
+		if st.Config == adminConfigMissing {
+			return errors.New(adminOpsError("config_missing"))
 		}
 		root, err := confParse(cfgText)
 		if err != nil {
@@ -481,7 +528,17 @@ func (m *adminManager) Status(id string) adminStatus {
 			return nil // password/http/command auth: nothing user-related to show
 		}
 		st.Auth = "userpass"
-		_, _, st.Stats = confTrafficStats(root)
+		listen, secret, enabled := confTrafficStats(root)
+		st.Stats = enabled
+		if enabled {
+			cred.StatsPort, cred.StatsSecret = adminListenPort(listen), secret
+		} else {
+			cred.StatsPort, cred.StatsSecret = 0, ""
+		}
+		old, _ := m.e.admin.get(id)
+		if old.StatsPort != cred.StatsPort || old.StatsSecret != cred.StatsSecret {
+			return m.e.admin.set(id, cred)
+		}
 		return nil
 	}); err != nil {
 		st.Error = err.Error()
@@ -503,9 +560,13 @@ func (m *adminManager) Attach(req adminConnectRequest) (adminStatus, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	cred := adminCredential{Host: req.Host, Port: req.Port, Username: req.Username, Password: req.Password}
-	ctx, cancel := adminCtx(90 * time.Second)
+	ctx, cancel := adminCtx(adminConnectTimeout)
 	defer cancel()
-	cc, err := m.connect(ctx, cred, req.Trust)
+	fingerprint := ""
+	if req.Trust {
+		fingerprint = req.Fingerprint
+	}
+	cc, err := m.connect(ctx, cred, fingerprint)
 	if err != nil {
 		return adminStatus{}, err
 	}
@@ -535,6 +596,11 @@ func (m *adminManager) Attach(req adminConnectRequest) (adminStatus, error) {
 }
 
 func (m *adminManager) Detach(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.curID == id {
+		m.drop(m.cur)
+	}
 	return m.e.admin.remove(id)
 }
 
@@ -547,7 +613,7 @@ func (m *adminManager) Users(id string) (adminUsersResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	res := adminUsersResult{}
-	uerr := m.withSSH(id, cred, func(cc *ssh.Client) error {
+	uerr := m.withSSH(id, cred, func(cc *adminSSHClient) error {
 		root, err := m.readConfig(cc, cred)
 		if err != nil {
 			return err
@@ -558,16 +624,22 @@ func (m *adminManager) Users(id string) (adminUsersResult, error) {
 				"User management requires the auth: userpass configuration.")
 		}
 		res = adminUsersResult{Users: make([]adminUser, 0, len(users)), Auth: "userpass"}
+		if listen, secret, enabled := confTrafficStats(root); enabled {
+			cred.StatsPort, cred.StatsSecret = adminListenPort(listen), secret
+		} else {
+			cred.StatsPort, cred.StatsSecret = 0, ""
+		}
 		traffic := map[string]userTraffic{}
 		online := map[string]int{}
-		if p, perr := m.probe(cc, cred, "traffic"); perr == nil {
-			if jerr := json.Unmarshal([]byte(p), &traffic); jerr == nil {
-				res.Stats = true
+		if cred.StatsPort != 0 {
+			res.Stats = true
+			if p, perr := m.probe(cc, cred, "traffic"); perr != nil || json.Unmarshal([]byte(p), &traffic) != nil {
+				res.Stats = false
+				res.StatsError = adminOpsError("stats_unavailable")
 			}
-		}
-		if p, perr := m.probe(cc, cred, "online"); perr == nil {
-			if jerr := json.Unmarshal([]byte(p), &online); jerr == nil {
-				res.Stats = true
+			if p, perr := m.probe(cc, cred, "online"); perr != nil || json.Unmarshal([]byte(p), &online) != nil {
+				res.Stats = false
+				res.StatsError = adminOpsError("stats_unavailable")
 			}
 		}
 		for _, u := range users {
@@ -615,7 +687,7 @@ func (m *adminManager) AddUser(id, user, pass string) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.withSSH(id, cred, func(cc *ssh.Client) error {
+	return m.withSSH(id, cred, func(cc *adminSSHClient) error {
 		root, err := m.readConfig(cc, cred)
 		if err != nil {
 			return err
@@ -637,7 +709,7 @@ func (m *adminManager) DeleteUser(id, user string) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.withSSH(id, cred, func(cc *ssh.Client) error {
+	return m.withSSH(id, cred, func(cc *adminSSHClient) error {
 		root, err := m.readConfig(cc, cred)
 		if err != nil {
 			return err
@@ -659,7 +731,7 @@ func (m *adminManager) UserLink(id, user string) (string, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	link := ""
-	uerr := m.withSSH(id, cred, func(cc *ssh.Client) error {
+	uerr := m.withSSH(id, cred, func(cc *adminSSHClient) error {
 		root, err := m.readConfig(cc, cred)
 		if err != nil {
 			return err
@@ -715,7 +787,7 @@ func (m *adminManager) EnableStats(id string) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.withSSH(id, cred, func(cc *ssh.Client) error {
+	return m.withSSH(id, cred, func(cc *adminSSHClient) error {
 		root, err := m.readConfig(cc, cred)
 		if err != nil {
 			return err
@@ -748,7 +820,7 @@ func (m *adminManager) ResetStats(id string) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.withSSH(id, cred, func(cc *ssh.Client) error {
+	return m.withSSH(id, cred, func(cc *adminSSHClient) error {
 		_, err := m.probe(cc, cred, "traffic?clear=1")
 		return err
 	})
@@ -779,7 +851,8 @@ echo pong
 
 func adminScriptStatus() string {
 	return adminScriptHeader + `
-service=$(systemctl is-active hysteria-server.service 2>/dev/null)
+printf 'HY2TUN_PAYLOAD\n'
+service=$(systemctl is-active hysteria-server.service 2>/dev/null || true)
 [ -n "$service" ] || service=unknown
 echo "service=$service"
 if [ -f /etc/hysteria/config.yaml ]; then
@@ -787,8 +860,12 @@ if [ -f /etc/hysteria/config.yaml ]; then
 else
   echo "config=config_missing"
 fi
-binver=$(hysteria version 2>/dev/null | head -n1)
+binver=$(hysteria version 2>/dev/null | head -n1 || true)
 echo "version=$binver"
+printf 'HY2TUN_CONFIG\n'
+if [ -f /etc/hysteria/config.yaml ]; then
+  cat /etc/hysteria/config.yaml
+fi
 `
 }
 
@@ -808,19 +885,24 @@ trap 'rm -f "$tmp"' EXIT
 base64 -d > "$tmp" <<'HY2TUN_CONFIG'
 ` + configB64 + `
 HY2TUN_CONFIG
-grep -qs '^auth:' "$tmp" || fail config_invalid
-grep -qs '^trafficStats:' "$tmp" || fail config_invalid
 if getent group hysteria >/dev/null 2>&1; then
   chown root:hysteria "$tmp" && chmod 640 "$tmp" || fail permissions_failed
 else
   chown root:root "$tmp" && chmod 600 "$tmp" || fail permissions_failed
 fi
-backup=/etc/hysteria/config.yaml.bak-$(date +%Y%m%d%H%M%S)
+backup=$(mktemp /etc/hysteria/config.yaml.bak-XXXXXXXX) || fail backup_failed
 cp -p /etc/hysteria/config.yaml "$backup" || fail backup_failed
 mv "$tmp" /etc/hysteria/config.yaml || fail configure_failed
-systemctl restart hysteria-server.service || fail restart_failed
+rollback() {
+  cp -p "$backup" /etc/hysteria/config.yaml || fail rollback_failed
+  systemctl restart hysteria-server.service || fail rollback_failed
+  sleep 1
+  systemctl is-active --quiet hysteria-server.service || fail rollback_failed
+  fail service_down
+}
+systemctl restart hysteria-server.service || rollback
 sleep 1
-systemctl is-active --quiet hysteria-server.service || fail service_down
+systemctl is-active --quiet hysteria-server.service || rollback
 printf 'HY2TUN_PAYLOAD\n'
 echo ok
 `
@@ -856,6 +938,8 @@ func (a *apiServer) adminAttach(w http.ResponseWriter, r *http.Request) {
 	st, err := a.admin.Attach(body)
 	if err != nil {
 		if fp, ok := adminTrustNeed(err); ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "no-store")
 			w.WriteHeader(http.StatusConflict)
 			writeJSON(w, map[string]any{"awaiting_host_key": true, "fingerprint": fp})
 			return

@@ -84,6 +84,7 @@ pre{margin:0;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:br
 .chip.more:hover{background:var(--line)}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;padding:16px;z-index:20}
 .modal.on{display:flex}
+#shareModal{z-index:30}
 .mbox{background:var(--card);border:1px solid var(--line);border-radius:18px;width:100%;max-width:440px;max-height:86vh;display:flex;flex-direction:column;padding:16px;box-shadow:0 20px 60px rgba(0,0,0,.45)}
 .mhead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
 .mhead h2{margin:0}
@@ -120,10 +121,22 @@ pre{margin:0;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:br
 .admin-u .n b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .admin-u .n .tag{margin-left:6px}
 .admin-u .acts{display:flex;gap:6px;flex:none}
+.admin-section{border-top:1px solid var(--line);margin-top:16px;padding-top:14px}
+.admin-section h3{font-size:15px;margin:0 0 10px}
+.admin-loading{display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--card2);font-size:13px;color:var(--mut);margin-bottom:10px}
+.admin-loading[hidden]{display:none}
+.admin-spinner{width:18px;height:18px;flex:none;border:2px solid var(--line);border-top-color:var(--acc);border-radius:50%;animation:admin-spin .8s linear infinite}
+#adminModal.on .mbox{animation:admin-enter .16s ease-out}
+#adminModal .admin-st{grid-template-columns:auto minmax(0,1fr)}
+#adminModal .admin-st>div{overflow-wrap:anywhere}
+#adminError:empty,#adminStatsWarning:empty{display:none}
+@keyframes admin-spin{to{transform:rotate(360deg)}}
+@keyframes admin-enter{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){#adminModal.on .mbox,.admin-spinner{animation:none}}
 /* phones: the server's buttons go under its name, and no desktop scrollbar */
 @media (max-width:480px){.srv{flex-wrap:wrap}.srv .n{flex-basis:100%}.srv .acts{margin-left:auto}}
 @media (pointer:coarse){::-webkit-scrollbar{width:0;height:0}}
-#toast{position:fixed;left:50%;bottom:70px;transform:translateX(-50%);background:var(--card2);border:1px solid var(--line);padding:8px 14px;border-radius:10px;opacity:0;transition:.25s;pointer-events:none;font-size:13px}
+#toast{position:fixed;z-index:40;left:50%;bottom:70px;transform:translateX(-50%);background:var(--card2);border:1px solid var(--line);padding:8px 14px;border-radius:10px;opacity:0;transition:.25s;pointer-events:none;font-size:13px}
 #toast.on{opacity:1}
 .langbtn{margin-left:auto}
 /* inside the desktop window the title bar already shows the icon and the name:
@@ -291,8 +304,8 @@ pre{margin:0;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:br
 </div></div>
 
 <!-- share a server link -->
-<div class="modal" id="shareModal"><div class="mbox">
-  <div class="mhead"><h2><span data-i18n="share.title">Share</span>: <span id="shareName"></span></h2><button class="btn sm" id="shareClose" data-i18n="btn.close">Close</button></div>
+<div class="modal" id="shareModal" role="dialog" aria-modal="true" aria-labelledby="shareHeading"><div class="mbox">
+  <div class="mhead"><h2 id="shareHeading"><span data-i18n="share.title">Share</span>: <span id="shareName"></span></h2><button class="btn sm" id="shareClose" data-i18n="btn.close">Close</button></div>
   <div class="mut small" data-i18n="share.warn">The link contains the server password — send it only to people you trust.</div>
   <textarea class="linkbox sel" id="shareLink" readonly style="margin-top:10px"></textarea>
   <img class="qr" id="shareQr" alt="QR">
@@ -306,6 +319,7 @@ pre{margin:0;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:br
 <!-- server admin panel over the saved SSH access -->
 <div class="modal" id="adminModal" role="dialog" aria-modal="true" aria-labelledby="adminTitle"><div class="mbox deploy-box">
   <div class="mhead"><h2 id="adminTitle"><span data-i18n="admin.title">Server admin</span>: <span id="adminName"></span></h2><button class="btn sm" id="adminClose" data-i18n="btn.close">Close</button></div>
+  <div class="admin-loading" id="adminLoading" role="status" aria-live="polite" hidden><span class="admin-spinner" aria-hidden="true"></span><span id="adminLoadingText"></span></div>
   <div id="adminAttach" style="display:none">
     <div class="mut small" data-i18n="admin.attachhint">No SSH access saved for this server yet. Enter it once — the users and the traffic stats appear here.</div>
     <div class="deploy-grid">
@@ -329,8 +343,10 @@ pre{margin:0;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:br
       <button class="btn sm" id="adminEnableStats" style="display:none" data-i18n="admin.enablestats">Enable traffic stats</button>
       <button class="btn sm dng" id="adminDetachBtn" data-i18n="admin.detach">Forget SSH access</button>
     </div>
-    <h3 data-i18n="admin.users" style="margin:14px 0 0">Users</h3>
+    <section class="admin-section" id="adminUserSection">
+    <h3 data-i18n="admin.users">Users</h3>
     <div id="adminUsers"></div>
+    <div id="adminStatsWarning" class="mut small" role="status"></div>
     <div class="add" style="margin-top:10px">
       <input type="text" id="adminNewUser" maxlength="32" spellcheck="false" autocapitalize="none" data-i18n-ph="admin.newuser" placeholder="user">
       <input type="text" id="adminNewPass" maxlength="128" autocomplete="off" spellcheck="false" data-i18n-ph="admin.newpass" placeholder="password">
@@ -339,8 +355,10 @@ pre{margin:0;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:br
     </div>
     <p class="mut small admin-note" data-i18n="admin.note">Adding or removing a user briefly restarts hysteria-server — clients reconnect automatically. Admin is the server owner: it cannot be deleted.</p>
     <p class="mut small" data-i18n="admin.traffic">↓ users' download · ↑ users' upload, since the server restart.</p>
+    </section>
   </div>
   <div class="err" id="adminError" role="alert"></div>
+  <button class="btn sm" id="adminRetry" style="display:none;margin-top:10px" data-i18n="admin.retry">Retry</button>
 </div></div>
 
 <div id="toast"></div>
@@ -377,6 +395,17 @@ const L={
   'admin.attach':'Attach',
   'admin.trust':'Trust and attach',
   'admin.refresh':'Refresh',
+  'admin.retry':'Retry',
+  'admin.loading':'Connecting to the server…',
+  'admin.loadingusers':'Loading users and traffic…',
+  'admin.applying':'Applying changes; the server may briefly restart…',
+  'admin.attaching':'Checking SSH access…',
+  'admin.getlink':'Preparing the user link…',
+  'admin.forgetting':'Removing saved SSH access…',
+  'admin.requestfailed':'Could not reach the local control API. Check that Hy2Tun is running, then retry.',
+  'admin.timeout':'The server did not respond in time. Retry; check SSH connectivity if this persists.',
+  'admin.badresponse':'The control API returned an invalid response. Restart Hy2Tun and retry.',
+  'admin.statsunavailable':'Traffic statistics are temporarily unavailable. User management still works.',
   'admin.detach':'Forget SSH access',
   'admin.detachq':'Forget the saved SSH access? The panel stops working until it is attached again.',
   'admin.users':'Users',
@@ -494,6 +523,17 @@ const L={
   'admin.attach':'Прикрепить',
   'admin.trust':'Доверять и прикрепить',
   'admin.refresh':'Обновить',
+  'admin.retry':'Повторить',
+  'admin.loading':'Подключаемся к серверу…',
+  'admin.loadingusers':'Загружаем пользователей и трафик…',
+  'admin.applying':'Применяем изменения; сервер может кратко перезапуститься…',
+  'admin.attaching':'Проверяем SSH-доступ…',
+  'admin.getlink':'Готовим ссылку пользователя…',
+  'admin.forgetting':'Удаляем сохранённый SSH-доступ…',
+  'admin.requestfailed':'Нет ответа от локального API управления. Проверьте, что Hy2Tun запущен, и повторите запрос.',
+  'admin.timeout':'Сервер не ответил вовремя. Повторите запрос; если ошибка повторяется, проверьте SSH-доступ.',
+  'admin.badresponse':'API управления вернул некорректный ответ. Перезапустите Hy2Tun и повторите запрос.',
+  'admin.statsunavailable':'Статистика трафика временно недоступна. Управление пользователями работает.',
   'admin.detach':'Забыть SSH-доступ',
   'admin.detachq':'Забыть сохранённый SSH-доступ? Панель перестанет работать, пока доступ не прикрепят заново.',
   'admin.users':'Пользователи',
@@ -780,19 +820,22 @@ $('deployNew').onclick=()=>{
 setInterval(()=>{if(deploymentBusy()||$('deployModal').classList.contains('on'))loadDeployment()},1000);
 
 /* ---- share ---- */
-let shareLinkText='', shareTitle='';
+let shareLinkText='', shareTitle='', shareReturnFocus=null;
 async function copyText(x){
   try{await navigator.clipboard.writeText(x);return true}
   catch(e){const ta=document.createElement('textarea');ta.value=x;document.body.appendChild(ta);ta.select();
     let ok=false;try{ok=document.execCommand('copy')}catch(_){}ta.remove();return ok}
 }
 function showShare(name, link, qrPath){
+  shareReturnFocus=document.activeElement;
   shareLinkText=link; shareTitle=name;
   $('shareName').textContent=name; $('shareLink').value=link;
   const q=$('shareQr'); q.style.display='none'; q.removeAttribute('src'); q.dataset.src=qrPath;
   $('qrBtn').textContent=t('qr.show');
   $('shareNative').style.display=navigator.share?'':'none';
   $('shareModal').classList.add('on');
+  if($('adminModal').classList.contains('on'))$('adminModal').inert=true;
+  $('shareClose').focus();
 }
 async function openShare(id){
   const r=await api('/api/servers/share',{method:'POST',body:JSON.stringify({id})});
@@ -807,7 +850,13 @@ $('qrBtn').onclick=()=>{
   if(show&&!q.getAttribute('src'))q.src=q.dataset.src+'&_='+Date.now();
   q.style.display=show?'block':'none';$('qrBtn').textContent=show?t('qr.hide'):t('qr.show');
 };
-$('shareClose').onclick=()=>{$('shareModal').classList.remove('on');$('shareLink').value='';shareLinkText=''};
+$('shareClose').onclick=()=>{
+  const wasOpen=$('shareModal').classList.contains('on');
+  $('shareModal').classList.remove('on');$('shareLink').value='';shareLinkText='';
+  $('adminModal').inert=false;
+  if(wasOpen&&shareReturnFocus&&shareReturnFocus.isConnected)shareReturnFocus.focus();
+  shareReturnFocus=null;
+};
 $('shareModal').onclick=e=>{if(e.target.id==='shareModal')$('shareClose').onclick()};
 $('linkAdd').onclick=async()=>{
   const link=$('linkIn').value.trim(); if(!link)return;
@@ -816,51 +865,101 @@ $('linkAdd').onclick=async()=>{
 };
 
 /* ---- server admin panel ---- */
-let adminId='', adminBusy=false;
+let adminId='', adminBusy=false, adminGeneration=0, adminController=null, adminFingerprint='';
 const adminBytes=n=>{n=Number(n)||0;const u=['B','KB','MB','GB','TB'];let i=0;
   while(n>=1000&&i<u.length-1){n/=1000;i++}return (i?(i<3?n.toFixed(1):Math.round(n)):n)+' '+u[i]};
+function adminCurrent(run){return run.generation===adminGeneration&&run.id===adminId&&$('adminModal').classList.contains('on')}
+function adminSetBusy(busy,label='admin.loading'){
+  adminBusy=busy;
+  $('adminModal').setAttribute('aria-busy',String(busy));
+  $('adminLoading').hidden=!busy;
+  $('adminLoadingText').textContent=t(label);
+  $('adminModal').querySelectorAll('input,button:not(#adminClose)').forEach(el=>el.disabled=busy);
+}
+async function adminRun(label,job){
+  if(!adminId||adminBusy)return;
+  const run={id:adminId,generation:adminGeneration,signal:adminController.signal};
+  adminSetBusy(true,label);
+  $('adminError').textContent='';$('adminRetry').style.display='none';
+  try{await job(run)}
+  catch(e){if(adminCurrent(run)&&e.name!=='AbortError'){
+    $('adminError').textContent=e.message||t('admin.requestfailed');
+    $('adminRetry').style.display='';
+  }}
+  finally{if(adminCurrent(run))adminSetBusy(false)}
+}
+async function adminRequest(run,path,body){
+  const controller=new AbortController();let timedOut=false;
+  const abort=()=>controller.abort();
+  run.signal.addEventListener('abort',abort,{once:true});
+  if(run.signal.aborted)controller.abort();
+  const timer=setTimeout(()=>{timedOut=true;controller.abort()},65000);
+  try{
+    const options={signal:controller.signal};
+    if(body!==undefined){options.method='POST';options.body=JSON.stringify(Object.assign({id:run.id},body))}
+    const r=await api('/api/admin/'+path,options), text=await r.text();
+    if(!adminCurrent(run))throw new DOMException('Closed','AbortError');
+    let d=null;try{d=text?JSON.parse(text):null}catch(_){}
+    if(r.status===409&&d&&d.awaiting_host_key)return d;
+    if(!r.ok)throw new Error(text.trim().slice(0,1200)||('HTTP '+r.status));
+    if(r.status!==204&&d===null)throw new Error(t('admin.badresponse'));
+    return d;
+  }catch(e){
+    if(run.signal.aborted)throw new DOMException('Closed','AbortError');
+    if(timedOut)throw new Error(t('admin.timeout'));
+    if(e instanceof TypeError)throw new Error(t('admin.requestfailed'));
+    throw e;
+  }finally{clearTimeout(timer);run.signal.removeEventListener('abort',abort)}
+}
 function openAdmin(id){
   const s=(S.servers||[]).find(x=>x.id===id); if(!s)return;
+  if(adminController)adminController.abort();
+  adminGeneration++;adminController=new AbortController();
   adminId=id;
   $('adminName').textContent=s.name;
   $('adminError').textContent=''; $('adminAttachErr').textContent='';
   $('adminHost').value=s.host; $('adminPort').value='22'; $('adminAttUser').value='root'; $('adminAttPass').value='';
-  $('adminTrust').style.display='none';
+  $('adminTrust').style.display='none';adminFingerprint='';
+  $('adminAttach').style.display=s.admin?'none':'';$('adminPanel').style.display=s.admin?'':'none';
+  $('adminRetry').style.display='none';$('adminStatsWarning').textContent='';
   $('adminStatusGrid').innerHTML=''; $('adminUsers').innerHTML='';
   $('adminNewUser').value=''; $('adminNewPass').value='';
   $('adminModal').classList.add('on');
+  adminSetBusy(false);
   $('adminClose').focus();
   adminStatusRefresh();
 }
-$('adminClose').onclick=()=>{$('adminModal').classList.remove('on');adminId=''};
+$('adminClose').onclick=()=>{
+  if(adminController)adminController.abort();
+  adminGeneration++;adminId='';adminSetBusy(false);
+  $('adminAttPass').value='';$('adminNewPass').value='';adminFingerprint='';
+  $('adminModal').classList.remove('on');
+};
 $('adminModal').onclick=e=>{if(e.target.id==='adminModal')$('adminClose').onclick()};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('adminModal').classList.contains('on')&&!$('shareModal').classList.contains('on'))$('adminClose').onclick()});
 function serviceState(s){return t('admin.state.'+(s==='active'?'active':s==='failed'?'failed':s==='inactive'?'inactive':'unknown'))}
-async function adminStatusRefresh(){
-  if(!adminId||adminBusy||!$('adminModal').classList.contains('on'))return;
-  try{
-    const r=await api('/api/admin/status?id='+encodeURIComponent(adminId));
-    if(!r.ok){$('adminError').textContent=await r.text();return}
-    const d=await r.json();
+async function adminLoad(run){
+    const d=await adminRequest(run,'status?id='+encodeURIComponent(run.id));
     $('adminAttach').style.display=d.attached?'none':'';
     $('adminPanel').style.display=d.attached?'':'none';
     if(!d.attached)return;
-    $('adminError').textContent=d.error||'';
     $('adminStatusGrid').innerHTML=
-      '<div class="k">'+esc(t('admin.service'))+'</div><div style="color:var(--' + (d.service==='active'?'ok':'bad') + ')">'+esc(serviceState(d.service))+'</div>'+
-      '<div class="k">'+esc(t('admin.config'))+'</div><div>'+(d.config==='config_ok'?esc(t('admin.configok')):esc(t('admin.configmiss')))+'</div>'+
+      '<div class="k">SSH</div><div>'+esc(d.ssh?'OK':t('admin.state.unknown'))+'</div>'+
+      '<div class="k">'+esc(t('admin.service'))+'</div><div style="color:var(--' + (d.service==='active'?'ok':d.service==='failed'?'bad':'mut') + ')">'+esc(serviceState(d.service))+'</div>'+
+      '<div class="k">'+esc(t('admin.config'))+'</div><div>'+esc(d.config==='config_ok'?t('admin.configok'):d.config==='config_missing'?t('admin.configmiss'):t('admin.state.unknown'))+'</div>'+
       '<div class="k">'+esc(t('admin.stats'))+'</div><div>'+(d.stats?esc(t('admin.statson')):esc(t('admin.statsoff')))+'</div>'+
       (d.version&&d.version!=='unknown'&&!/unknown/.test(d.version)?'<div class="k">'+esc(t('admin.version'))+'</div><div class="mut small">'+esc(d.version)+'</div>':'');
-    $('adminEnableStats').style.display=!d.stats?'':'none';
-    if(d.auth!=='userpass')$('adminError').textContent=$('adminError').textContent||t('admin.needuserpass');
-  }catch(e){$('adminError').textContent=t('svc.down')}
+    $('adminEnableStats').style.display=!d.stats&&d.auth==='userpass'&&!d.error?'':'none';
+    $('adminUserSection').style.display=d.auth==='userpass'&&!d.error?'':'none';
+    if(d.error)throw new Error(d.error);
+    if(d.auth!=='userpass')throw new Error(t('admin.needuserpass'));
+    $('adminLoadingText').textContent=t('admin.loadingusers');
+    await adminUsersRefresh(run);
 }
-async function adminUsersRefresh(){
-  if(!adminId||!$('adminModal').classList.contains('on'))return;
-  try{
-    const r=await api('/api/admin/users?id='+encodeURIComponent(adminId));
-    if(!r.ok){$('adminError').textContent=await r.text();return}
-    const d=await r.json();
-    $('adminError').textContent='';
+function adminStatusRefresh(){return adminRun('admin.loading',adminLoad)}
+async function adminUsersRefresh(run){
+    const d=await adminRequest(run,'users?id='+encodeURIComponent(run.id));
+    $('adminStatsWarning').textContent=d.stats_error?t('admin.statsunavailable'):'';
     $('adminUsers').innerHTML=(d.users||[]).map(u=>{
       const online=u.online?'<span class="tag t-tunnel">'+esc(t('admin.online').replace('{0}',u.online))+'</span>':'';
       const traffic=u.tx||u.rx?'<span class="mut small">↓ '+adminBytes(u.tx)+' · ↑ '+adminBytes(u.rx)+'</span>':'';
@@ -868,95 +967,72 @@ async function adminUsersRefresh(){
       return '<div class="admin-u"><div class="n"><b>'+esc(u.user)+'</b>'+online+traffic+'</div><div class="acts">'+
         '<button class="btn sm" data-ulink="'+esc(u.user)+'">'+esc(t('admin.link'))+'</button>'+del+'</div></div>';
     }).join('')||'<div class="mut small">'+esc(t('admin.nousers'))+'</div>';
-  }catch(e){$('adminError').textContent=t('svc.down')}
 }
-$('adminRefresh').onclick=async()=>{
-  await adminStatusRefresh(); adminUsersRefresh();
-};
+$('adminRefresh').onclick=adminStatusRefresh;
+$('adminRetry').onclick=adminStatusRefresh;
 $('adminAttachBtn').onclick=()=>adminAttachSend(false);
 $('adminTrustBtn').onclick=()=>adminAttachSend(true);
-async function adminAttachSend(trust){
-  if(adminBusy||!adminId)return;
-  adminBusy=true;
+function adminAttachSend(trust){return adminRun('admin.attaching',async run=>{
   $('adminAttachErr').textContent='';
-  try{
-    const r=await api('/api/admin/attach',{method:'POST',body:JSON.stringify({
-      id:adminId,host:$('adminHost').value.trim(),ssh_port:Number($('adminPort').value||22),
-      username:$('adminAttUser').value.trim()||'root',password:$('adminAttPass').value,trust:trust})});
-    if(r.status===409){
-      let d=null; try{d=await r.json()}catch(_){}
-      if(d&&d.awaiting_host_key){$('adminTrust').style.display='';$('adminFingerprint').textContent=d.fingerprint}
-      else $('adminAttachErr').textContent=await r.text().catch(()=>'');
-    }else if(!r.ok){
-      $('adminAttachErr').textContent=await r.text();
+    const d=await adminRequest(run,'attach',{
+      host:$('adminHost').value.trim(),ssh_port:Number($('adminPort').value||22),
+      username:$('adminAttUser').value.trim()||'root',password:$('adminAttPass').value,trust,fingerprint:trust?adminFingerprint:''});
+    if(d.awaiting_host_key){
+      adminFingerprint=d.fingerprint;
+      $('adminTrust').style.display='';$('adminFingerprint').textContent=d.fingerprint;
     }else{
       $('adminAttPass').value=''; $('adminTrust').style.display='none';
-      await adminStatusRefresh(); adminUsersRefresh();
+      await adminLoad(run);
     }
-  }catch(e){$('adminAttachErr').textContent=t('svc.down')}
-  finally{adminBusy=false}
-}
-$('adminDetachBtn').onclick=async()=>{
-  if(!confirm(t('admin.detachq')))return;
-  const r=await api('/api/admin/detach',{method:'POST',body:JSON.stringify({id:adminId})});
-  if(!r.ok){toast(await r.text());return}
-  $('adminAttach').style.display='';$('adminPanel').style.display='none';
-};
-$('adminEnableStats').onclick=async()=>{
+})}
+['adminHost','adminPort','adminAttUser','adminAttPass'].forEach(id=>$(id).addEventListener('input',()=>{
+  adminFingerprint='';$('adminTrust').style.display='none';
+}));
+$('adminDetachBtn').onclick=()=>{
   if(adminBusy||!adminId)return;
-  adminBusy=true;
-  try{
-    const r=await api('/api/admin/stats/enable',{method:'POST',body:JSON.stringify({id:adminId})});
-    if(!r.ok){toast(await r.text());return}
-    await adminStatusRefresh(); adminUsersRefresh();
-  }finally{adminBusy=false}
+  if(!confirm(t('admin.detachq')))return;
+  return adminRun('admin.forgetting',async run=>{
+    await adminRequest(run,'detach',{});
+    $('adminAttach').style.display='';$('adminPanel').style.display='none';
+  });
 };
+$('adminEnableStats').onclick=()=>adminRun('admin.applying',async run=>{
+  await adminRequest(run,'stats/enable',{});await adminLoad(run);
+});
 $('adminGenBtn').onclick=()=>{
   const a=new Uint8Array(12);crypto.getRandomValues(a);
   $('adminNewPass').value=[...a].map(x=>x.toString(16).padStart(2,'0')).join('');
 };
-$('adminAddBtn').onclick=async()=>{
+$('adminAddBtn').onclick=()=>{
   const user=$('adminNewUser').value.trim(), pass=$('adminNewPass').value;
   if(!user||!pass){toast(t('admin.fillboth'));return}
-  if(adminBusy||!adminId)return;
-  adminBusy=true;
-  try{
-    const r=await api('/api/admin/users/add',{method:'POST',body:JSON.stringify({id:adminId,user,password:pass})});
-    if(!r.ok){toast(await r.text());return}
+  return adminRun('admin.applying',async run=>{
+    await adminRequest(run,'users/add',{user,password:pass});
     $('adminNewUser').value='';$('adminNewPass').value='';
     toast(t('admin.added'));
-    await adminUsersRefresh();
-  }catch(e){toast(e.message)}
-  finally{adminBusy=false}
+    await adminLoad(run);
+  });
 };
-$('adminUsers').onclick=async e=>{
+$('adminUsers').onclick=e=>{
+  if(adminBusy||!adminId)return;
   const del=e.target.dataset.del;
   if(del){
     if(!confirm(t('admin.delq').replace('{0}',del)))return;
-    if(adminBusy)return; adminBusy=true;
-    try{
-      const r=await api('/api/admin/users/delete',{method:'POST',body:JSON.stringify({id:adminId,user:del})});
-      if(!r.ok){toast(await r.text());return}
-      await adminUsersRefresh();
-    }finally{adminBusy=false}
-    return;
+    return adminRun('admin.applying',async run=>{
+      await adminRequest(run,'users/delete',{user:del});await adminLoad(run);
+    });
   }
   const ul=e.target.dataset.ulink;
-  if(ul&&!adminBusy){
-    adminBusy=true;
-    try{
-      const r=await api('/api/admin/userlink',{method:'POST',body:JSON.stringify({id:adminId,user:ul})});
-      if(!r.ok){toast(await r.text());return}
-      const d=await r.json();
+  if(ul){
+    return adminRun('admin.getlink',async run=>{
+      const d=await adminRequest(run,'userlink',{user:ul});
       showShare(d.name||ul, d.link, '/api/servers/qr?link='+encodeURIComponent(d.link)+'&t='+encodeURIComponent(T));
-    }catch(err){toast(err.message)}
-    finally{adminBusy=false}
+    });
   }
 };
 setInterval(()=>{
-  // the polls reuse the cached SSH connection (acquire ping-checks it), so a
-  // slow burst of fresh handshakes cannot trip server-side throttle guards
-  if(adminId&&$('adminModal').classList.contains('on'))adminStatusRefresh();
+  // One refresh includes users/traffic; single-flight prevents queued polls.
+  if(adminId&&$('adminModal').classList.contains('on')&&!$('shareModal').classList.contains('on'))adminStatusRefresh();
 },15000);
 
 /* ---- rules ---- */

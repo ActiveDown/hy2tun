@@ -205,3 +205,25 @@ func TestAdminStorePersistsCredentials(t *testing.T) {
 		t.Fatal("credential removal failed")
 	}
 }
+
+func TestAdminStoreFailedSaveKeepsPreviousState(t *testing.T) {
+	s := newAdminStore(t.TempDir(), false)
+	original := adminCredential{Host: "203.0.113.9", Password: "original"}
+	if err := s.set("srv", original); err != nil {
+		t.Fatal(err)
+	}
+	// A directory cannot be replaced by the store's temporary file.
+	s.path = t.TempDir()
+	if err := s.set("srv", adminCredential{Password: "replacement"}); err == nil {
+		t.Fatal("save unexpectedly succeeded")
+	}
+	if c, ok := s.get("srv"); !ok || c.Password != original.Password {
+		t.Fatal("failed save changed the in-memory credential")
+	}
+	if err := s.set("new", original); err == nil || s.has("new") {
+		t.Fatal("failed save retained a new credential")
+	}
+	if err := s.remove("srv"); err == nil || !s.has("srv") {
+		t.Fatal("failed removal forgot the credential only in memory")
+	}
+}
