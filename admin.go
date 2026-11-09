@@ -229,13 +229,13 @@ func (m *adminManager) exec(cc *ssh.Client, username, script string) (string, st
 	if username != "root" {
 		command = `sudo -n bash -se -- "$SSH_CONNECTION"`
 	}
-	if err = sess.Start(command); err != nil {
-		log.Printf("admin: exec start failed on %s as %s: %v", cc.Conn.RemoteAddr(), username, err)
-		return "", "", err
-	}
 	stdout, perr := sess.StdoutPipe()
 	if perr != nil {
 		return "", "", perr
+	}
+	if err = sess.Start(command); err != nil {
+		log.Printf("admin: exec start failed on %s as %s: %v", cc.Conn.RemoteAddr(), username, err)
+		return "", "", err
 	}
 	var payload strings.Builder
 	code := ""
