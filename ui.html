@@ -954,8 +954,10 @@ $('adminUsers').onclick=async e=>{
   }
 };
 setInterval(()=>{
+  // the polls reuse the cached SSH connection (acquire ping-checks it), so a
+  // slow burst of fresh handshakes cannot trip server-side throttle guards
   if(adminId&&$('adminModal').classList.contains('on'))adminStatusRefresh();
-},7000);
+},15000);
 
 /* ---- rules ---- */
 /* a few chips on the page, the whole list in a window */

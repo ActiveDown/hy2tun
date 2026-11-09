@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -32,9 +33,12 @@ import (
 const adminTrustMarker = "need_trust:"
 
 type adminManager struct {
-	e    *Engine
-	mu   sync.Mutex // one SSH operation at a time
-	dial func(context.Context, string) (net.Conn, error)
+	e     *Engine
+	mu    sync.Mutex // one SSH operation at a time
+	dial  func(context.Context, string) (net.Conn, error)
+	cur   *ssh.Client // cached connection of the currently managed server
+	curID string
+	idle  time.Time
 }
 
 func newAdminManager(e *Engine) *adminManager {
@@ -226,6 +230,7 @@ func (m *adminManager) exec(cc *ssh.Client, username, script string) (string, st
 		command = `sudo -n bash -se -- "$SSH_CONNECTION"`
 	}
 	if err = sess.Start(command); err != nil {
+		log.Printf("admin: exec start failed on %s as %s: %v", cc.Conn.RemoteAddr(), username, err)
 		return "", "", err
 	}
 	stdout, perr := sess.StdoutPipe()
@@ -253,12 +258,40 @@ func (m *adminManager) exec(cc *ssh.Client, username, script string) (string, st
 	if sc.Err() != nil {
 		werr = sc.Err()
 	}
+	if werr != nil {
+		// the reason is plain local data (an exit status, a channel refusal) — no
+		// remote output or secrets pass through
+		log.Printf("admin: exec on %s as %s failed: %v", cc.Conn.RemoteAddr(), username, werr)
+	}
 	return payload.String(), code, werr
 }
 
-func adminSSHError(_ error) string {
-	return tr("Команда на сервере не выполнена. Нужен root или пользователь с sudo без пароля.",
-		"The remote command failed. Root or a user with passwordless sudo is required.")
+// adminSSHError explains a failing remote exec. The SSH password was already
+// accepted at this point; the wording must not cast doubt on it.
+func adminSSHError(err error) string {
+	detail := ""
+	if e, ok := err.(*ssh.ExitError); ok {
+		detail = adminExitDetail(e.ExitStatus())
+	} else if err != nil {
+		if _, ok := err.(*ssh.ExitMissingError); ok {
+			detail = tr("соединение оборвалось до окончания команды", "the connection dropped before the command finished")
+		} else {
+			detail = err.Error()
+		}
+	}
+	return tr("SSH-пароль принят, но команду на сервере выполнить не удалось ("+detail+"). Нужен полноценный shell-доступ (bash) для этого пользователя.",
+		"The SSH password was accepted, but the command could not be executed ("+detail+"). A full shell access (bash) is required for this user.")
+}
+
+func adminExitDetail(status int) string {
+	switch status {
+	case 126, 127:
+		return fmt.Sprintf(tr("код %d — bash не найден или вход ограничен", "exit code %d — bash unavailable or the login is restricted"), status)
+	case 255:
+		return tr("код 255 — sshd отклонил запуск команды", "exit code 255 — sshd refused to run the command")
+	default:
+		return fmt.Sprintf(tr("код %d", "exit code %d"), status)
+	}
 }
 
 func adminOpsError(code string) string {
@@ -294,6 +327,58 @@ func adminOpsError(code string) string {
 
 func adminCtx(d time.Duration) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), d)
+}
+
+const adminIdleKeep = 2 * time.Minute
+
+// acquire returns a cached and still-answering connection for id, or dials a
+// fresh one. Servers throttle rapid unauthenticated SSH handshakes (MaxStartups
+// and hoster guards): the panel keeps one connection across poll cycles.
+func (m *adminManager) acquire(id string, c adminCredential) (*ssh.Client, error) {
+	if m.cur != nil && m.curID == id && time.Since(m.idle) < adminIdleKeep {
+		if _, code, werr := m.exec(m.cur, c.Username, adminScriptPing()); werr == nil && code == "" {
+			m.idle = time.Now()
+			return m.cur, nil
+		}
+		m.cur.Close()
+		m.cur = nil
+		m.curID = ""
+	}
+	ctx, cancel := adminCtx(90 * time.Second)
+	defer cancel()
+	cc, err := m.connect(ctx, c, true)
+	if err != nil {
+		return nil, err
+	}
+	m.cur, m.curID, m.idle = cc, id, time.Now()
+	return cc, nil
+}
+
+// drop discards the cached connection: on any failure inside an operation.
+func (m *adminManager) drop(cc *ssh.Client) {
+	if cc != m.cur {
+		if cc != nil {
+			cc.Close()
+		}
+		return
+	}
+	cc.Close()
+	m.cur, m.curID = nil, ""
+}
+
+// withSSH runs op with a cached or fresh connection; on success the
+// connection stays cached for later polls, on error it is dropped.
+func (m *adminManager) withSSH(id string, c adminCredential, op func(*ssh.Client) error) error {
+	cc, err := m.acquire(id, c)
+	if err != nil {
+		return errors.New(adminRelErr(err))
+	}
+	if err = op(cc); err != nil {
+		m.drop(cc)
+		return err
+	}
+	m.idle = time.Now()
+	return nil
 }
 
 func (m *adminManager) serverCert(id string) (Server, adminCredential, error) {
@@ -368,51 +453,46 @@ func (m *adminManager) Status(id string) adminStatus {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	ctx, cancel := adminCtx(90 * time.Second)
-	defer cancel()
-	cc, err := m.connect(ctx, cred, true)
-	if err != nil {
-		st.Error = adminRelErr(err)
-		return st
-	}
-	defer cc.Close()
-	if payload, _, werr := m.exec(cc, cred.Username, adminScriptStatus()); werr == nil {
-		for _, line := range strings.Split(payload, "\n") {
-			switch {
-			case strings.HasPrefix(line, "service="):
-				st.Service = strings.TrimPrefix(line, "service=")
-			case strings.HasPrefix(line, "config="):
-				st.Config = strings.TrimPrefix(line, "config=")
-			case strings.HasPrefix(line, "version="):
-				st.Version = strings.TrimPrefix(line, "version=")
+	if err := m.withSSH(id, cred, func(cc *ssh.Client) error {
+		if payload, _, werr := m.exec(cc, cred.Username, adminScriptStatus()); werr == nil {
+			for _, line := range strings.Split(payload, "\n") {
+				switch {
+				case strings.HasPrefix(line, "service="):
+					st.Service = strings.TrimPrefix(line, "service=")
+				case strings.HasPrefix(line, "config="):
+					st.Config = strings.TrimPrefix(line, "config=")
+				case strings.HasPrefix(line, "version="):
+					st.Version = strings.TrimPrefix(line, "version=")
+				}
 			}
 		}
+		cfgText, code, werr := m.exec(cc, cred.Username, adminScriptReadConfig())
+		switch {
+		case code != "":
+			return errors.New(adminOpsError(code))
+		case werr != nil:
+			return errors.New(adminSSHError(werr))
+		}
+		root, err := confParse(cfgText)
+		if err != nil {
+			return errors.New(tr("Не удалось разобрать config.yaml сервера.", "Could not parse the server's config.yaml."))
+		}
+		if _, uerr := confUserPassNode(root); uerr != nil {
+			return nil // password/http/command auth: nothing user-related to show
+		}
+		st.Auth = "userpass"
+		_, _, st.Stats = confTrafficStats(root)
+		return nil
+	}); err != nil {
+		st.Error = err.Error()
 	}
-	cfgText, code, werr := m.exec(cc, cred.Username, adminScriptReadConfig())
-	switch {
-	case code != "":
-		st.Error = adminOpsError(code)
-		return st
-	case werr != nil:
-		st.Error = adminSSHError(werr)
-		return st
-	}
-	root, err := confParse(cfgText)
-	if err != nil {
-		st.Error = tr("Не удалось разобрать config.yaml сервера.", "Could not parse the server's config.yaml.")
-		return st
-	}
-	if _, uerr := confUserPassNode(root); uerr != nil {
-		return st // password/http/command auth: nothing user-related to show
-	}
-	st.Auth = "userpass"
-	_, _, st.Stats = confTrafficStats(root)
 	return st
 }
 
 // Attach verifies SSH access against the profile, confirms that the server
 // runs userpass Hysteria2 and stores the credential (adopting the Traffic
-// Stats data when the server already has them).
+// Stats data when the server already has them). The typed credentials always
+// open their own connection; on success it becomes the cached one.
 func (m *adminManager) Attach(req adminConnectRequest) (adminStatus, error) {
 	if err := req.normalize(); err != nil {
 		return adminStatus{}, err
@@ -429,12 +509,13 @@ func (m *adminManager) Attach(req adminConnectRequest) (adminStatus, error) {
 	if err != nil {
 		return adminStatus{}, err
 	}
-	defer cc.Close()
 	root, err := m.readConfig(cc, cred)
 	if err != nil {
+		cc.Close()
 		return adminStatus{}, err
 	}
 	if _, uerr := confUserPassNode(root); uerr != nil {
+		cc.Close()
 		return adminStatus{}, trErr("Панель управления доступна только для конфигурации с auth: userpass.",
 			"The panel works only with the auth: userpass configuration.")
 	}
@@ -445,8 +526,11 @@ func (m *adminManager) Attach(req adminConnectRequest) (adminStatus, error) {
 		st.Stats = true
 	}
 	if err = m.e.admin.set(req.ID, cred); err != nil {
+		cc.Close()
 		return adminStatus{}, err
 	}
+	m.drop(m.cur) // replace the cache: the verified connection is already open
+	m.cur, m.curID, m.idle = cc, req.ID, time.Now()
 	return st, nil
 }
 
@@ -462,48 +546,48 @@ func (m *adminManager) Users(id string) (adminUsersResult, error) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	ctx, cancel := adminCtx(90 * time.Second)
-	defer cancel()
-	cc, cerr := m.connect(ctx, cred, true)
-	if cerr != nil {
-		return adminUsersResult{}, errors.New(adminRelErr(cerr))
-	}
-	defer cc.Close()
-	root, err := m.readConfig(cc, cred)
-	if err != nil {
-		return adminUsersResult{}, err
-	}
-	users, uerr := confUsers(root)
-	if uerr != nil {
-		return adminUsersResult{}, trErr("Управление пользователями доступно только при auth: userpass.",
-			"User management requires the auth: userpass configuration.")
-	}
-	res := adminUsersResult{Users: make([]adminUser, 0, len(users)), Auth: "userpass"}
-	traffic := map[string]userTraffic{}
-	online := map[string]int{}
-	if p, perr := m.probe(cc, cred, "traffic"); perr == nil {
-		if jerr := json.Unmarshal([]byte(p), &traffic); jerr == nil {
-			res.Stats = true
+	res := adminUsersResult{}
+	uerr := m.withSSH(id, cred, func(cc *ssh.Client) error {
+		root, err := m.readConfig(cc, cred)
+		if err != nil {
+			return err
 		}
-	}
-	if p, perr := m.probe(cc, cred, "online"); perr == nil {
-		if jerr := json.Unmarshal([]byte(p), &online); jerr == nil {
-			res.Stats = true
+		users, uerr := confUsers(root)
+		if uerr != nil {
+			return trErr("Управление пользователями доступно только при auth: userpass.",
+				"User management requires the auth: userpass configuration.")
 		}
-	}
-	for _, u := range users {
-		row := adminUser{User: u, Owner: u == adminReserveUser, Online: online[u]}
-		if t, ok := traffic[u]; ok {
-			row.Tx, row.Rx = t.Tx, t.Rx
+		res = adminUsersResult{Users: make([]adminUser, 0, len(users)), Auth: "userpass"}
+		traffic := map[string]userTraffic{}
+		online := map[string]int{}
+		if p, perr := m.probe(cc, cred, "traffic"); perr == nil {
+			if jerr := json.Unmarshal([]byte(p), &traffic); jerr == nil {
+				res.Stats = true
+			}
 		}
-		res.Users = append(res.Users, row)
-	}
-	sort.Slice(res.Users, func(i, j int) bool {
-		if res.Users[i].Owner != res.Users[j].Owner {
-			return res.Users[i].Owner
+		if p, perr := m.probe(cc, cred, "online"); perr == nil {
+			if jerr := json.Unmarshal([]byte(p), &online); jerr == nil {
+				res.Stats = true
+			}
 		}
-		return res.Users[i].User < res.Users[j].User
+		for _, u := range users {
+			row := adminUser{User: u, Owner: u == adminReserveUser, Online: online[u]}
+			if t, ok := traffic[u]; ok {
+				row.Tx, row.Rx = t.Tx, t.Rx
+			}
+			res.Users = append(res.Users, row)
+		}
+		sort.Slice(res.Users, func(i, j int) bool {
+			if res.Users[i].Owner != res.Users[j].Owner {
+				return res.Users[i].Owner
+			}
+			return res.Users[i].User < res.Users[j].User
+		})
+		return nil
 	})
+	if uerr != nil {
+		return adminUsersResult{}, uerr
+	}
 	return res, nil
 }
 
@@ -531,21 +615,16 @@ func (m *adminManager) AddUser(id, user, pass string) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	ctx, cancel := adminCtx(120 * time.Second)
-	defer cancel()
-	cc, cerr := m.connect(ctx, cred, true)
-	if cerr != nil {
-		return errors.New(adminRelErr(cerr))
-	}
-	defer cc.Close()
-	root, err := m.readConfig(cc, cred)
-	if err != nil {
-		return err
-	}
-	if err = confSetUser(root, user, pass); err != nil {
-		return err
-	}
-	return m.writeAndRestart(cc, cred, root)
+	return m.withSSH(id, cred, func(cc *ssh.Client) error {
+		root, err := m.readConfig(cc, cred)
+		if err != nil {
+			return err
+		}
+		if err = confSetUser(root, user, pass); err != nil {
+			return err
+		}
+		return m.writeAndRestart(cc, cred, root)
+	})
 }
 
 func (m *adminManager) DeleteUser(id, user string) error {
@@ -558,21 +637,16 @@ func (m *adminManager) DeleteUser(id, user string) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	ctx, cancel := adminCtx(120 * time.Second)
-	defer cancel()
-	cc, cerr := m.connect(ctx, cred, true)
-	if cerr != nil {
-		return errors.New(adminRelErr(cerr))
-	}
-	defer cc.Close()
-	root, err := m.readConfig(cc, cred)
-	if err != nil {
-		return err
-	}
-	if err = confRemoveUser(root, user); err != nil {
-		return trErr("Пользователь не найден.", "User not found.")
-	}
-	return m.writeAndRestart(cc, cred, root)
+	return m.withSSH(id, cred, func(cc *ssh.Client) error {
+		root, err := m.readConfig(cc, cred)
+		if err != nil {
+			return err
+		}
+		if err = confRemoveUser(root, user); err != nil {
+			return trErr("Пользователь не найден.", "User not found.")
+		}
+		return m.writeAndRestart(cc, cred, root)
+	})
 }
 
 // UserLink builds the hy2:// link of one user out of the server link and the
@@ -584,51 +658,52 @@ func (m *adminManager) UserLink(id, user string) (string, string, error) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	ctx, cancel := adminCtx(90 * time.Second)
-	defer cancel()
-	cc, cerr := m.connect(ctx, cred, true)
-	if cerr != nil {
-		return "", "", errors.New(adminRelErr(cerr))
-	}
-	defer cc.Close()
-	root, err := m.readConfig(cc, cred)
-	if err != nil {
-		return "", "", err
-	}
-	pass, uerr := confUser(root, user)
+	link := ""
+	uerr := m.withSSH(id, cred, func(cc *ssh.Client) error {
+		root, err := m.readConfig(cc, cred)
+		if err != nil {
+			return err
+		}
+		pass, perr := confUser(root, user)
+		if perr != nil {
+			return trErr("Пользователь не найден.", "User not found.")
+		}
+		l, lerr := parseLink(srv.Link)
+		if lerr != nil {
+			return lerr
+		}
+		u := &url.URL{Scheme: "hy2", User: url.User(user + ":" + pass), Host: net.JoinHostPort(l.Host, l.Port)}
+		q := url.Values{}
+		q.Set("sni", l.SNI)
+		if l.Ports != "" {
+			u.Host = net.JoinHostPort(l.Host, l.Ports)
+			q.Set("mport", l.Ports)
+		}
+		if l.Insecure {
+			q.Set("insecure", "1")
+		}
+		if l.PinSHA256 != "" {
+			q.Set("pinSHA256", l.PinSHA256)
+		}
+		if l.Obfs != "" {
+			q.Set("obfs", l.Obfs)
+			q.Set("obfs-password", l.ObfsPassword)
+		}
+		if l.HopInterval > 0 {
+			q.Set("hop-interval", strconv.FormatInt(int64(l.HopInterval/time.Second), 10))
+		}
+		u.RawQuery = q.Encode()
+		u.Fragment = l.Name
+		if user != adminReserveUser {
+			u.Fragment = strings.TrimSpace(l.Name + " · " + user)
+		}
+		link = u.String()
+		return nil
+	})
 	if uerr != nil {
-		return "", "", trErr("Пользователь не найден.", "User not found.")
+		return "", "", uerr
 	}
-	l, lerr := parseLink(srv.Link)
-	if lerr != nil {
-		return "", "", lerr
-	}
-	u := &url.URL{Scheme: "hy2", User: url.User(user + ":" + pass), Host: net.JoinHostPort(l.Host, l.Port)}
-	q := url.Values{}
-	q.Set("sni", l.SNI)
-	if l.Ports != "" {
-		u.Host = net.JoinHostPort(l.Host, l.Ports)
-		q.Set("mport", l.Ports)
-	}
-	if l.Insecure {
-		q.Set("insecure", "1")
-	}
-	if l.PinSHA256 != "" {
-		q.Set("pinSHA256", l.PinSHA256)
-	}
-	if l.Obfs != "" {
-		q.Set("obfs", l.Obfs)
-		q.Set("obfs-password", l.ObfsPassword)
-	}
-	if l.HopInterval > 0 {
-		q.Set("hop-interval", strconv.FormatInt(int64(l.HopInterval/time.Second), 10))
-	}
-	u.RawQuery = q.Encode()
-	u.Fragment = l.Name
-	if user != adminReserveUser {
-		u.Fragment = strings.TrimSpace(l.Name + " · " + user)
-	}
-	return srv.Name, u.String(), nil
+	return srv.Name, link, nil
 }
 
 // EnableStats turns the Traffic Stats section on (a random secret plus a
@@ -640,38 +715,30 @@ func (m *adminManager) EnableStats(id string) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	ctx, cancel := adminCtx(120 * time.Second)
-	defer cancel()
-	cc, cerr := m.connect(ctx, cred, true)
-	if cerr != nil {
-		return errors.New(adminRelErr(cerr))
-	}
-	defer cc.Close()
-	root, err := m.readConfig(cc, cred)
-	if err != nil {
-		return err
-	}
-	if listen, secret, ok := confTrafficStats(root); ok {
-		cred.StatsPort = adminListenPort(listen)
-		cred.StatsSecret = secret
-		if serr := m.e.admin.set(id, cred); serr != nil {
-			return serr
+	return m.withSSH(id, cred, func(cc *ssh.Client) error {
+		root, err := m.readConfig(cc, cred)
+		if err != nil {
+			return err
 		}
-		return nil
-	}
-	secret, rerr := adminNewSecret(24)
-	if rerr != nil {
-		return rerr
-	}
-	if err = confSetTrafficStats(root, fmt.Sprintf("127.0.0.1:%d", adminStatsListenPort), secret); err != nil {
-		return err
-	}
-	if err = m.writeAndRestart(cc, cred, root); err != nil {
-		return err
-	}
-	cred.StatsPort = adminStatsListenPort
-	cred.StatsSecret = secret
-	return m.e.admin.set(id, cred)
+		if listen, secret, ok := confTrafficStats(root); ok {
+			cred.StatsPort = adminListenPort(listen)
+			cred.StatsSecret = secret
+			return m.e.admin.set(id, cred)
+		}
+		secret, rerr := adminNewSecret(24)
+		if rerr != nil {
+			return rerr
+		}
+		if err = confSetTrafficStats(root, fmt.Sprintf("127.0.0.1:%d", adminStatsListenPort), secret); err != nil {
+			return err
+		}
+		if err = m.writeAndRestart(cc, cred, root); err != nil {
+			return err
+		}
+		cred.StatsPort = adminStatsListenPort
+		cred.StatsSecret = secret
+		return m.e.admin.set(id, cred)
+	})
 }
 
 func (m *adminManager) ResetStats(id string) error {
@@ -681,15 +748,10 @@ func (m *adminManager) ResetStats(id string) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	ctx, cancel := adminCtx(60 * time.Second)
-	defer cancel()
-	cc, cerr := m.connect(ctx, cred, true)
-	if cerr != nil {
-		return errors.New(adminRelErr(cerr))
-	}
-	defer cc.Close()
-	_, err = m.probe(cc, cred, "traffic?clear=1")
-	return err
+	return m.withSSH(id, cred, func(cc *ssh.Client) error {
+		_, err := m.probe(cc, cred, "traffic?clear=1")
+		return err
+	})
 }
 
 func adminListenPort(listen string) int {
@@ -707,6 +769,13 @@ const adminScriptHeader = `set -uo pipefail
 umask 077
 fail() { printf 'HY2TUN_ERROR:%s\n' "$1"; exit 1; }
 `
+
+func adminScriptPing() string {
+	return adminScriptHeader + `
+printf 'HY2TUN_PAYLOAD\n'
+echo pong
+`
+}
 
 func adminScriptStatus() string {
 	return adminScriptHeader + `
