@@ -111,6 +111,15 @@ pre{margin:0;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:br
 .deploy-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 .deploy-summary{margin-top:10px;text-align:left;width:100%}
 .btn:disabled{opacity:.55;cursor:default}
+/* admin panel over the saved SSH access */
+.admin-st{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13px;margin-top:10px}
+.admin-st .k{color:var(--mut)}
+.admin-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.admin-u{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;margin-top:8px;background:var(--card2);flex-wrap:wrap}
+.admin-u .n{flex:1;min-width:140px}
+.admin-u .n b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.admin-u .n .tag{margin-left:6px}
+.admin-u .acts{display:flex;gap:6px;flex:none}
 /* phones: the server's buttons go under its name, and no desktop scrollbar */
 @media (max-width:480px){.srv{flex-wrap:wrap}.srv .n{flex-basis:100%}.srv .acts{margin-left:auto}}
 @media (pointer:coarse){::-webkit-scrollbar{width:0;height:0}}
@@ -258,7 +267,8 @@ pre{margin:0;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:br
         <label class="wide"><span data-i18n="deploy.email">Certificate email (optional)</span><input type="email" id="deployEmail" maxlength="254" placeholder="you@example.com" autocapitalize="none"></label>
       </div>
       <label class="row small" style="justify-content:flex-start"><input type="checkbox" id="deployConnect"><span data-i18n="deploy.connect">Connect to the VPN when ready</span></label>
-      <p class="mut small" data-i18n="deploy.privacy">The SSH password is used only for this setup and is not saved. A separate VPN password is generated automatically.</p>
+      <label class="row small" style="justify-content:flex-start"><input type="checkbox" id="deploySaveSSH" checked><span data-i18n="deploy.savessh">Save the SSH access for the admin panel</span></label>
+      <p class="mut small" data-i18n="deploy.privacy">The SSH password is used for this setup and, when saving is enabled, kept only on this device (in the protected app data). A separate VPN password is generated automatically.</p>
       <button class="btn pri" id="deployStart" type="submit" data-i18n="deploy.start">Set up server</button>
     </fieldset>
   </form>
@@ -293,6 +303,46 @@ pre{margin:0;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:br
   </div>
 </div></div>
 
+<!-- server admin panel over the saved SSH access -->
+<div class="modal" id="adminModal" role="dialog" aria-modal="true" aria-labelledby="adminTitle"><div class="mbox deploy-box">
+  <div class="mhead"><h2 id="adminTitle"><span data-i18n="admin.title">Server admin</span>: <span id="adminName"></span></h2><button class="btn sm" id="adminClose" data-i18n="btn.close">Close</button></div>
+  <div id="adminAttach" style="display:none">
+    <div class="mut small" data-i18n="admin.attachhint">No SSH access saved for this server yet. Enter it once — the users and the traffic stats appear here.</div>
+    <div class="deploy-grid">
+      <label><span data-i18n="deploy.host">Server IP or hostname</span><input type="text" id="adminHost" maxlength="253" spellcheck="false" autocapitalize="none" placeholder="203.0.113.10"></label>
+      <label><span data-i18n="deploy.port">SSH port</span><input type="number" id="adminPort" required min="1" max="65535" value="22" inputmode="numeric"></label>
+      <label><span data-i18n="deploy.user">SSH login</span><input type="text" id="adminAttUser" maxlength="32" value="root" spellcheck="false" autocapitalize="none"></label>
+      <label><span data-i18n="deploy.password">SSH password</span><input type="password" id="adminAttPass" maxlength="1024" autocomplete="new-password"></label>
+    </div>
+    <div id="adminTrust" style="display:none">
+      <p class="mut small" data-i18n="deploy.trusthint">Check this SSH fingerprint against your server provider before sending the password.</p>
+      <div class="deploy-fingerprint" id="adminFingerprint"></div>
+      <button class="btn pri" id="adminTrustBtn" data-i18n="admin.trust">Trust and attach</button>
+    </div>
+    <div class="err" id="adminAttachErr" role="alert"></div>
+    <button class="btn pri" id="adminAttachBtn" style="margin-top:10px" data-i18n="admin.attach">Attach</button>
+  </div>
+  <div id="adminPanel" style="display:none">
+    <div class="admin-st" id="adminStatusGrid"></div>
+    <div class="admin-actions">
+      <button class="btn sm" id="adminRefresh" data-i18n="admin.refresh">Refresh</button>
+      <button class="btn sm" id="adminEnableStats" style="display:none" data-i18n="admin.enablestats">Enable traffic stats</button>
+      <button class="btn sm dng" id="adminDetachBtn" data-i18n="admin.detach">Forget SSH access</button>
+    </div>
+    <h3 data-i18n="admin.users" style="margin:14px 0 0">Users</h3>
+    <div id="adminUsers"></div>
+    <div class="add" style="margin-top:10px">
+      <input type="text" id="adminNewUser" maxlength="32" spellcheck="false" autocapitalize="none" data-i18n-ph="admin.newuser" placeholder="user">
+      <input type="text" id="adminNewPass" maxlength="128" autocomplete="off" spellcheck="false" data-i18n-ph="admin.newpass" placeholder="password">
+      <button class="btn" id="adminGenBtn" data-i18n="admin.gen">Generate</button>
+      <button class="btn pri" id="adminAddBtn" data-i18n="btn.add">Add</button>
+    </div>
+    <p class="mut small admin-note" data-i18n="admin.note">Adding or removing a user briefly restarts hysteria-server — clients reconnect automatically. Admin is the server owner: it cannot be deleted.</p>
+    <p class="mut small" data-i18n="admin.traffic">↓ users' download · ↑ users' upload, since the server restart.</p>
+  </div>
+  <div class="err" id="adminError" role="alert"></div>
+</div></div>
+
 <div id="toast"></div>
 <script>
 const T=new URLSearchParams(location.search).get('t');
@@ -319,7 +369,42 @@ const L={
   "deploy.domain":"Domain",
   "deploy.email":"Certificate email (optional)",
   "deploy.connect":"Connect to the VPN when ready",
-  "deploy.privacy":"The SSH password is used only for this setup and is not saved. A separate VPN password is generated automatically.",
+  "deploy.savessh":"Save the SSH access for the admin panel",
+  "deploy.privacy":"The SSH password is used for this setup and, when saving is enabled, kept only on this device (in the protected app data). A separate VPN password is generated automatically.",
+  'btn.admin':'Admin',
+  'admin.title':'Server admin',
+  'admin.attachhint':'No SSH access saved for this server yet. Enter it once — the users and the traffic stats appear here.',
+  'admin.attach':'Attach',
+  'admin.trust':'Trust and attach',
+  'admin.refresh':'Refresh',
+  'admin.detach':'Forget SSH access',
+  'admin.detachq':'Forget the saved SSH access? The panel stops working until it is attached again.',
+  'admin.users':'Users',
+  'admin.nousers':'No users found in the server config.',
+  'admin.online':'online: {0}',
+  'admin.link':'Link',
+  'admin.newuser':'user',
+  'admin.newpass':'password',
+  'admin.gen':'Generate',
+  'admin.fillboth':'Enter the username and the password',
+  'admin.added':'User added',
+  'admin.delq':'Delete user {0}? The server restarts briefly and the user loses access.',
+  'admin.service':'Service',
+  'admin.state.active':'running',
+  'admin.state.inactive':'stopped',
+  'admin.state.failed':'failed',
+  'admin.state.unknown':'unknown',
+  'admin.config':'Config',
+  'admin.configok':'OK',
+  'admin.configmiss':'missing',
+  'admin.stats':'Traffic stats',
+  'admin.statson':'Enabled',
+  'admin.statsoff':'Disabled',
+  'admin.enablestats':'Enable traffic stats',
+  'admin.version':'Version',
+  'admin.needuserpass':'The panel works only with the auth: userpass configuration.',
+  'admin.note':'Adding or removing a user briefly restarts hysteria-server — clients reconnect automatically. Admin is the server owner: it cannot be deleted.',
+  'admin.traffic':'↓ users\u2019 download · ↑ users\u2019 upload, since the server restart.',
   "deploy.start":"Set up server",
   "deploy.running":"Setting up the server…",
   "deploy.awaiting":"Confirm the SSH server",
@@ -401,7 +486,42 @@ const L={
   "deploy.domain":"Домен",
   "deploy.email":"Email для сертификата (необязательно)",
   "deploy.connect":"Подключиться к VPN после настройки",
-  "deploy.privacy":"Пароль SSH используется только для этой настройки и не сохраняется. Отдельный пароль VPN будет создан автоматически.",
+  "deploy.savessh":"Сохранить SSH-доступ для админки",
+  "deploy.privacy":"SSH-пароль используется для установки и при включённом сохранении хранится только на этом устройстве (в защищённых данных приложения). Отдельный пароль VPN будет создан автоматически.",
+  'btn.admin':'Админка',
+  'admin.title':'Админка сервера',
+  'admin.attachhint':'Для этого сервера ещё нет сохранённого SSH-доступа. Введите его один раз — здесь появятся пользователи и статистика трафика.',
+  'admin.attach':'Прикрепить',
+  'admin.trust':'Доверять и прикрепить',
+  'admin.refresh':'Обновить',
+  'admin.detach':'Забыть SSH-доступ',
+  'admin.detachq':'Забыть сохранённый SSH-доступ? Панель перестанет работать, пока доступ не прикрепят заново.',
+  'admin.users':'Пользователи',
+  'admin.nousers':'В конфиге сервера нет пользователей.',
+  'admin.online':'в сети: {0}',
+  'admin.link':'Ссылка',
+  'admin.newuser':'логин',
+  'admin.newpass':'пароль',
+  'admin.gen':'Сгенерировать',
+  'admin.fillboth':'Введите логин и пароль',
+  'admin.added':'Пользователь добавлен',
+  'admin.delq':'Удалить пользователя {0}? Сервер кратко перезапустится, пользователь потеряет доступ.',
+  'admin.service':'Служба',
+  'admin.state.active':'работает',
+  'admin.state.inactive':'остановлена',
+  'admin.state.failed':'упала',
+  'admin.state.unknown':'неизвестно',
+  'admin.config':'Конфиг',
+  'admin.configok':'в порядке',
+  'admin.configmiss':'отсутствует',
+  'admin.stats':'Статистика трафика',
+  'admin.statson':'включена',
+  'admin.statsoff':'выключена',
+  'admin.enablestats':'Включить статистику',
+  'admin.version':'Версия',
+  'admin.needuserpass':'Панель работает только с настройкой auth: userpass.',
+  'admin.note':'Добавление и удаление пользователя кратко перезапускает hysteria-server — клиенты переподключаются сами. Admin — владелец сервера: его удалить нельзя.',
+  'admin.traffic':'↓ пользователи скачали · ↑ пользователи отдали, с последнего рестарта сервера.',
   "deploy.start":"Настроить сервер",
   "deploy.running":"Настраиваем сервер…",
   "deploy.awaiting":"Подтвердите SSH-сервер",
@@ -570,9 +690,10 @@ $('diagDl').onclick=async()=>{
 function renderServers(){
   if(!S)return;
   $('srvList').innerHTML=(S.servers||[]).map(s=>'<div class="srv'+(s.active&&S.status.state==='connected'?' act':'')+'"><div class="n"><b>'+esc(s.name)+'</b><span class="mut small">'+esc(s.host)+':'+esc(s.port)+' · SNI '+esc(s.sni)+(s.obfs?' · '+esc(s.obfs):'')+(s.hop?' · hop '+esc(s.hop):'')+'</span></div>'+
-    '<div class="acts"><button class="btn" data-share="'+s.id+'">'+esc(t('btn.share'))+'</button><button class="btn dng" data-del="'+s.id+'">'+esc(t('btn.delete'))+'</button></div></div>').join('')||'<div class="mut" style="padding:8px">'+esc(t('srv.empty'))+'</div>';
+    '<div class="acts"><button class="btn" data-admin="'+s.id+'">'+esc(t('btn.admin'))+'</button><button class="btn" data-share="'+s.id+'">'+esc(t('btn.share'))+'</button><button class="btn dng" data-del="'+s.id+'">'+esc(t('btn.delete'))+'</button></div></div>').join('')||'<div class="mut" style="padding:8px">'+esc(t('srv.empty'))+'</div>';
 }
 $('srvList').onclick=async e=>{
+  const ad=e.target.dataset.admin; if(ad){openAdmin(ad);return}
   const sh=e.target.dataset.share; if(sh){openShare(sh);return}
   const id=e.target.dataset.del; if(!id)return;
   const r=await api('/api/servers/delete',{method:'POST',body:JSON.stringify({id})});
@@ -648,7 +769,7 @@ $('deployForm').onsubmit=e=>{
   if(deploymentBusy()||deploySending)return;
   deploymentRequest({name:$('deployName').value.trim(),host:$('deployHost').value.trim(),ssh_port:Number($('deployPort').value),
     username:$('deployUser').value.trim(),password:$('deployPassword').value,domain:$('deployDomain').value.trim(),
-    email:$('deployEmail').value.trim(),connect:$('deployConnect').checked});
+    email:$('deployEmail').value.trim(),connect:$('deployConnect').checked,save_ssh:$('deploySaveSSH').checked});
 };
 $('deployTrustBtn').onclick=()=>{if(deployment&&deployment.state==='awaiting_host_key')deploymentRequest({id:deployment.id,trust:true})};
 $('deployCancel').onclick=()=>{if(deploymentBusy())deploymentRequest({id:deployment.id,cancel:true})};
@@ -665,15 +786,19 @@ async function copyText(x){
   catch(e){const ta=document.createElement('textarea');ta.value=x;document.body.appendChild(ta);ta.select();
     let ok=false;try{ok=document.execCommand('copy')}catch(_){}ta.remove();return ok}
 }
-async function openShare(id){
-  const r=await api('/api/servers/share',{method:'POST',body:JSON.stringify({id})});
-  if(!r.ok){toast(await r.text());return}
-  const d=await r.json(); shareLinkText=d.link; shareTitle=d.name;
-  $('shareName').textContent=d.name; $('shareLink').value=d.link;
-  const q=$('shareQr'); q.style.display='none'; q.removeAttribute('src'); q.dataset.src='/api/servers/qr?id='+encodeURIComponent(id)+'&t='+encodeURIComponent(T);
+function showShare(name, link, qrPath){
+  shareLinkText=link; shareTitle=name;
+  $('shareName').textContent=name; $('shareLink').value=link;
+  const q=$('shareQr'); q.style.display='none'; q.removeAttribute('src'); q.dataset.src=qrPath;
   $('qrBtn').textContent=t('qr.show');
   $('shareNative').style.display=navigator.share?'':'none';
   $('shareModal').classList.add('on');
+}
+async function openShare(id){
+  const r=await api('/api/servers/share',{method:'POST',body:JSON.stringify({id})});
+  if(!r.ok){toast(await r.text());return}
+  const d=await r.json();
+  showShare(d.name, d.link, '/api/servers/qr?id='+encodeURIComponent(id)+'&t='+encodeURIComponent(T));
 }
 $('shareCopy').onclick=async()=>{toast(await copyText(shareLinkText)?t('share.copied'):t('share.copyfail'))};
 $('shareNative').onclick=()=>{navigator.share({title:'Hy2Tun: '+shareTitle,text:shareLinkText}).catch(()=>{})};
@@ -689,6 +814,148 @@ $('linkAdd').onclick=async()=>{
   const r=await api('/api/servers',{method:'POST',body:JSON.stringify({link})});
   if(r.ok){$('linkIn').value='';toast(t('srv.added'));tick()} else toast(await r.text());
 };
+
+/* ---- server admin panel ---- */
+let adminId='', adminBusy=false;
+const adminBytes=n=>{n=Number(n)||0;const u=['B','KB','MB','GB','TB'];let i=0;
+  while(n>=1000&&i<u.length-1){n/=1000;i++}return (i?(i<3?n.toFixed(1):Math.round(n)):n)+' '+u[i]};
+function openAdmin(id){
+  const s=(S.servers||[]).find(x=>x.id===id); if(!s)return;
+  adminId=id;
+  $('adminName').textContent=s.name;
+  $('adminError').textContent=''; $('adminAttachErr').textContent='';
+  $('adminHost').value=s.host; $('adminPort').value='22'; $('adminAttUser').value='root'; $('adminAttPass').value='';
+  $('adminTrust').style.display='none';
+  $('adminStatusGrid').innerHTML=''; $('adminUsers').innerHTML='';
+  $('adminNewUser').value=''; $('adminNewPass').value='';
+  $('adminModal').classList.add('on');
+  $('adminClose').focus();
+  adminStatusRefresh();
+}
+$('adminClose').onclick=()=>{$('adminModal').classList.remove('on');adminId=''};
+$('adminModal').onclick=e=>{if(e.target.id==='adminModal')$('adminClose').onclick()};
+function serviceState(s){return t('admin.state.'+(s==='active'?'active':s==='failed'?'failed':s==='inactive'?'inactive':'unknown'))}
+async function adminStatusRefresh(){
+  if(!adminId||adminBusy||!$('adminModal').classList.contains('on'))return;
+  try{
+    const r=await api('/api/admin/status?id='+encodeURIComponent(adminId));
+    if(!r.ok){$('adminError').textContent=await r.text();return}
+    const d=await r.json();
+    $('adminAttach').style.display=d.attached?'none':'';
+    $('adminPanel').style.display=d.attached?'':'none';
+    if(!d.attached)return;
+    $('adminError').textContent=d.error||'';
+    $('adminStatusGrid').innerHTML=
+      '<div class="k">'+esc(t('admin.service'))+'</div><div style="color:var(--' + (d.service==='active'?'ok':'bad') + ')">'+esc(serviceState(d.service))+'</div>'+
+      '<div class="k">'+esc(t('admin.config'))+'</div><div>'+(d.config==='config_ok'?esc(t('admin.configok')):esc(t('admin.configmiss')))+'</div>'+
+      '<div class="k">'+esc(t('admin.stats'))+'</div><div>'+(d.stats?esc(t('admin.statson')):esc(t('admin.statsoff')))+'</div>'+
+      (d.version&&d.version!=='unknown'&&!/unknown/.test(d.version)?'<div class="k">'+esc(t('admin.version'))+'</div><div class="mut small">'+esc(d.version)+'</div>':'');
+    $('adminEnableStats').style.display=!d.stats?'':'none';
+    if(d.auth!=='userpass')$('adminError').textContent=$('adminError').textContent||t('admin.needuserpass');
+  }catch(e){$('adminError').textContent=t('svc.down')}
+}
+async function adminUsersRefresh(){
+  if(!adminId||!$('adminModal').classList.contains('on'))return;
+  try{
+    const r=await api('/api/admin/users?id='+encodeURIComponent(adminId));
+    if(!r.ok){$('adminError').textContent=await r.text();return}
+    const d=await r.json();
+    $('adminError').textContent='';
+    $('adminUsers').innerHTML=(d.users||[]).map(u=>{
+      const online=u.online?'<span class="tag t-tunnel">'+esc(t('admin.online').replace('{0}',u.online))+'</span>':'';
+      const traffic=u.tx||u.rx?'<span class="mut small">↓ '+adminBytes(u.tx)+' · ↑ '+adminBytes(u.rx)+'</span>':'';
+      const del=u.owner?'':'<button class="btn sm dng" data-del="'+esc(u.user)+'">'+esc(t('btn.delete'))+'</button>';
+      return '<div class="admin-u"><div class="n"><b>'+esc(u.user)+'</b>'+online+traffic+'</div><div class="acts">'+
+        '<button class="btn sm" data-ulink="'+esc(u.user)+'">'+esc(t('admin.link'))+'</button>'+del+'</div></div>';
+    }).join('')||'<div class="mut small">'+esc(t('admin.nousers'))+'</div>';
+  }catch(e){$('adminError').textContent=t('svc.down')}
+}
+$('adminRefresh').onclick=async()=>{
+  await adminStatusRefresh(); adminUsersRefresh();
+};
+$('adminAttachBtn').onclick=()=>adminAttachSend(false);
+$('adminTrustBtn').onclick=()=>adminAttachSend(true);
+async function adminAttachSend(trust){
+  if(adminBusy||!adminId)return;
+  adminBusy=true;
+  $('adminAttachErr').textContent='';
+  try{
+    const r=await api('/api/admin/attach',{method:'POST',body:JSON.stringify({
+      id:adminId,host:$('adminHost').value.trim(),ssh_port:Number($('adminPort').value||22),
+      username:$('adminAttUser').value.trim()||'root',password:$('adminAttPass').value,trust:trust})});
+    if(r.status===409){
+      let d=null; try{d=await r.json()}catch(_){}
+      if(d&&d.awaiting_host_key){$('adminTrust').style.display='';$('adminFingerprint').textContent=d.fingerprint}
+      else $('adminAttachErr').textContent=await r.text().catch(()=>'');
+    }else if(!r.ok){
+      $('adminAttachErr').textContent=await r.text();
+    }else{
+      $('adminAttPass').value=''; $('adminTrust').style.display='none';
+      await adminStatusRefresh(); adminUsersRefresh();
+    }
+  }catch(e){$('adminAttachErr').textContent=t('svc.down')}
+  finally{adminBusy=false}
+}
+$('adminDetachBtn').onclick=async()=>{
+  if(!confirm(t('admin.detachq')))return;
+  const r=await api('/api/admin/detach',{method:'POST',body:JSON.stringify({id:adminId})});
+  if(!r.ok){toast(await r.text());return}
+  $('adminAttach').style.display='';$('adminPanel').style.display='none';
+};
+$('adminEnableStats').onclick=async()=>{
+  if(adminBusy||!adminId)return;
+  adminBusy=true;
+  try{
+    const r=await api('/api/admin/stats/enable',{method:'POST',body:JSON.stringify({id:adminId})});
+    if(!r.ok){toast(await r.text());return}
+    await adminStatusRefresh(); adminUsersRefresh();
+  }finally{adminBusy=false}
+};
+$('adminGenBtn').onclick=()=>{
+  const a=new Uint8Array(12);crypto.getRandomValues(a);
+  $('adminNewPass').value=[...a].map(x=>x.toString(16).padStart(2,'0')).join('');
+};
+$('adminAddBtn').onclick=async()=>{
+  const user=$('adminNewUser').value.trim(), pass=$('adminNewPass').value;
+  if(!user||!pass){toast(t('admin.fillboth'));return}
+  if(adminBusy||!adminId)return;
+  adminBusy=true;
+  try{
+    const r=await api('/api/admin/users/add',{method:'POST',body:JSON.stringify({id:adminId,user,password:pass})});
+    if(!r.ok){toast(await r.text());return}
+    $('adminNewUser').value='';$('adminNewPass').value='';
+    toast(t('admin.added'));
+    await adminUsersRefresh();
+  }catch(e){toast(e.message)}
+  finally{adminBusy=false}
+};
+$('adminUsers').onclick=async e=>{
+  const del=e.target.dataset.del;
+  if(del){
+    if(!confirm(t('admin.delq').replace('{0}',del)))return;
+    if(adminBusy)return; adminBusy=true;
+    try{
+      const r=await api('/api/admin/users/delete',{method:'POST',body:JSON.stringify({id:adminId,user:del})});
+      if(!r.ok){toast(await r.text());return}
+      await adminUsersRefresh();
+    }finally{adminBusy=false}
+    return;
+  }
+  const ul=e.target.dataset.ulink;
+  if(ul&&!adminBusy){
+    adminBusy=true;
+    try{
+      const r=await api('/api/admin/userlink',{method:'POST',body:JSON.stringify({id:adminId,user:ul})});
+      if(!r.ok){toast(await r.text());return}
+      const d=await r.json();
+      showShare(d.name||ul, d.link, '/api/servers/qr?link='+encodeURIComponent(d.link)+'&t='+encodeURIComponent(T));
+    }catch(err){toast(err.message)}
+    finally{adminBusy=false}
+  }
+};
+setInterval(()=>{
+  if(adminId&&$('adminModal').classList.contains('on'))adminStatusRefresh();
+},7000);
 
 /* ---- rules ---- */
 /* a few chips on the page, the whole list in a window */

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net"
 	"net/mail"
 	"net/url"
@@ -33,6 +34,7 @@ type provisionRequest struct {
 	Email    string `json:"email"`
 	Name     string `json:"name"`
 	Connect  bool   `json:"connect"`
+	SaveSSH  bool   `json:"save_ssh"` // keep the access for the admin panel
 }
 
 var provisionUserRE = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_-]{0,31}$`)
@@ -116,6 +118,7 @@ type provisionStatus struct {
 	Warning     string `json:"warning,omitempty"`
 	Fingerprint string `json:"fingerprint,omitempty"`
 	ServerID    string `json:"server_id,omitempty"`
+	AdminSaved  bool   `json:"admin_saved,omitempty"` // SSH access stored for the admin panel
 }
 
 type provisionJob struct {
@@ -215,6 +218,15 @@ func (m *provisionManager) run(ctx context.Context, j *provisionJob, req provisi
 		})
 		return
 	}
+	// SSH access for the admin panel is captured immediately: provisioning
+	// clears req.Password right after connecting. The Traffic Stats secret is
+	// generated together with the VPN password so the server config stays the
+	// single source of both.
+	sshHost, sshPort, sshUser, sshPass := req.Host, req.SSHPort, req.Username, req.Password
+	statsSecret := make([]byte, 24)
+	if _, err := rand.Read(statsSecret); err != nil {
+		statsSecret = nil
+	}
 	link := provisionLink(req, hex.EncodeToString(secret))
 	save := func() error {
 		if saved {
@@ -310,7 +322,7 @@ func (m *provisionManager) run(ctx context.Context, j *provisionJob, req provisi
 		}
 	}
 	m.update(j, func(s *provisionStatus) { s.State = "running" })
-	script, err := provisionScript(req, hex.EncodeToString(secret))
+	script, err := provisionScript(req, hex.EncodeToString(secret), hex.EncodeToString(statsSecret))
 	if err != nil {
 		fail(tr("Не удалось подготовить установку.", "Could not prepare installation."))
 		return
@@ -373,6 +385,15 @@ func (m *provisionManager) run(ctx context.Context, j *provisionJob, req provisi
 		fail(tr("Сервер установлен, но профиль не сохранён.", "Server installed, but the profile could not be saved."))
 		return
 	}
+	if req.SaveSSH && statsSecret != nil {
+		cred := adminCredential{Host: sshHost, Port: sshPort, Username: sshUser, Password: sshPass,
+			StatsPort: adminStatsListenPort, StatsSecret: hex.EncodeToString(statsSecret)}
+		if serr := m.e.admin.set(profile.ID, cred); serr == nil {
+			m.update(j, func(s *provisionStatus) { s.AdminSaved = true })
+		} else {
+			log.Printf("admin: could not save the SSH access for the panel: %v", serr)
+		}
+	}
 	m.update(j, func(s *provisionStatus) { s.Stage = "verify" })
 	l, _ := parseLink(link)
 	verifyCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -394,7 +415,17 @@ func (m *provisionManager) run(ctx context.Context, j *provisionJob, req provisi
 }
 
 func (m *provisionManager) readHostKeys() (map[string]string, error) {
-	b, err := os.ReadFile(filepath.Join(m.e.dir, "ssh-host-keys.json"))
+	return loadSSHHostKeys(m.e.dir)
+}
+
+func (m *provisionManager) writeHostKeys(keys map[string]string) error {
+	return saveSSHHostKeys(m.e.dir, keys, m.e.store.secure)
+}
+
+// loadSSHHostKeys reads the trusted SSH host keys of e.dir ("host:port" →
+// authorized_keys line); unknown hosts return an empty map.
+func loadSSHHostKeys(dir string) (map[string]string, error) {
+	b, err := os.ReadFile(filepath.Join(dir, "ssh-host-keys.json"))
 	if os.IsNotExist(err) {
 		return map[string]string{}, nil
 	}
@@ -409,15 +440,16 @@ func (m *provisionManager) readHostKeys() (map[string]string, error) {
 	return keys, err
 }
 
-func (m *provisionManager) writeHostKeys(keys map[string]string) error {
-	if err := os.MkdirAll(m.e.dir, 0700); err != nil {
+// saveSSHHostKeys replaces the trusted host keys atomically.
+func saveSSHHostKeys(dir string, keys map[string]string, secure bool) error {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
 	b, err := json.MarshalIndent(keys, "", "  ")
 	if err != nil {
 		return err
 	}
-	f, err := os.CreateTemp(m.e.dir, ".ssh-host-keys-*")
+	f, err := os.CreateTemp(dir, ".ssh-host-keys-*")
 	if err != nil {
 		return err
 	}
@@ -429,11 +461,11 @@ func (m *provisionManager) writeHostKeys(keys map[string]string) error {
 	if err = f.Close(); err != nil {
 		return err
 	}
-	path := filepath.Join(m.e.dir, "ssh-host-keys.json")
+	path := filepath.Join(dir, "ssh-host-keys.json")
 	if err := os.Rename(f.Name(), path); err != nil {
 		return err
 	}
-	if m.e.store.secure {
+	if secure {
 		lockDownFile(path, false)
 	}
 	return nil

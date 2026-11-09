@@ -29,6 +29,12 @@ A Windows, macOS and Android client for [Hysteria 2](https://v2.hysteria.network
   with the Windows Filtering Platform (dynamic session — nothing persistent is left behind).
 - **Server list** with `hy2://` import, copy / QR code sharing.
 - **Server deployment over SSH** from the Servers tab, with automatic profile creation.
+- **Server admin panel** («Админка») next to every server: add and remove VPN
+  users, their online status and traffic (Hysteria2 Traffic Stats). Requires
+  the SSH access saved at deployment (on by default) or attached to an existing
+  profile; it stays on this device in the protected app data. The server's
+  config is edited in place (backup kept on the server) and hysteria-server
+  restarts briefly — clients reconnect automatically.
 - **Obfuscation and port hopping**: `obfs=salamander` (or `gecko`) with `obfs-password`, a port range in the
   address (`host:20000-30000`) or `mport=20000-30000`, `hop-interval=<seconds>`, and `pinSHA256` certificate pinning.
 - **English and Russian** UI (English by default).

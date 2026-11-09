@@ -27,6 +27,7 @@ type ServerView struct {
 	Port   string `json:"port"`
 	SNI    string `json:"sni"`
 	Active bool   `json:"active"`
+	Admin  bool   `json:"admin,omitempty"` // saved SSH access for the panel
 	Obfs   string `json:"obfs,omitempty"` // "salamander" / "gecko"
 	Hop    string `json:"hop,omitempty"`  // port hopping set, e.g. "20000-30000"
 }

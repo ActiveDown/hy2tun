@@ -90,6 +90,7 @@ type Engine struct {
 	opts     EngineOpts
 	dir      string
 	store    *serverStore
+	admin    *adminStore
 	router   *router
 	procs    *procTable
 	logs     *ringLog
@@ -117,6 +118,7 @@ func newEngine(opts EngineOpts, dir string, secure bool, logs *ringLog) *Engine 
 		opts:     opts,
 		dir:      dir,
 		store:    newServerStore(dir, secure),
+		admin:    newAdminStore(dir, secure),
 		procs:    newProcTable(),
 		logs:     logs,
 		appPaths: loadAppPathCache(dir),
@@ -193,6 +195,16 @@ func (e *Engine) status() Status {
 		e.mu.Unlock()
 	}
 	return st
+}
+
+// serverViews is the UI list of profiles plus the flag telling the panel that
+// saved SSH access exists for the server (the credential itself never leaves).
+func (e *Engine) serverViews(active string) []ServerView {
+	out := e.store.views(active)
+	for i := range out {
+		out[i].Admin = e.admin.has(out[i].ID)
+	}
+	return out
 }
 
 // startBackground runs the speed sampler and the firewall loop (once).

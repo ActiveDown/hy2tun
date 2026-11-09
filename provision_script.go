@@ -15,11 +15,14 @@ var provisionSiteHTML string
 // provisionScript is sent on SSH stdin, never in a command line. User-supplied
 // configuration is data: JSON strings are valid YAML scalars and the complete
 // file is transported as base64, outside the shell's expansion rules.
-func provisionScript(req provisionRequest, vpnPassword string) (string, error) {
+func provisionScript(req provisionRequest, vpnPassword, statsSecret string) (string, error) {
 	if req.Domain == "" || vpnPassword == "" || req.SSHPort < 1 || req.SSHPort > 65535 {
 		return "", errors.New("incomplete deployment configuration")
 	}
 	scalar := func(s string) string { b, _ := json.Marshal(s); return string(b) }
+	if statsSecret == "" {
+		statsSecret = "unknown"
+	}
 	config := fmt.Sprintf(`listen: 0.0.0.0:443
 acme:
   type: http
@@ -32,6 +35,9 @@ auth:
   type: userpass
   userpass:
     Admin: %s
+trafficStats:
+  listen: 127.0.0.1:%d
+  secret: %s
 masquerade:
   type: file
   file:
@@ -39,7 +45,7 @@ masquerade:
   listenHTTP: :80
   listenHTTPS: :443
   forceHTTPS: true
-`, scalar(req.Domain), scalar(req.Email), scalar(vpnPassword))
+`, scalar(req.Domain), scalar(req.Email), scalar(vpnPassword), adminStatsListenPort, scalar(statsSecret))
 	replacements := strings.NewReplacer(
 		"@@DOMAIN@@", provisionShellQuote(req.Domain),
 		"@@SSH_PORT@@", fmt.Sprint(req.SSHPort),

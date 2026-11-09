@@ -18,7 +18,7 @@ func TestProvisionScriptUntrustedConfiguration(t *testing.T) {
 	domain := "host'$(touch /tmp/hy2tun-must-not-run);.example.com"
 	password := "secret\nHY2TUN_CONFIG\n$(id);'\"\\"
 	email := "a\"\n: value@example.com"
-	script, err := provisionScript(provisionRequest{Domain: domain, Email: email, SSHPort: 2222}, password)
+	script, err := provisionScript(provisionRequest{Domain: domain, Email: email, SSHPort: 2222}, password, "statssecret")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,6 +49,10 @@ func TestProvisionScriptUntrustedConfiguration(t *testing.T) {
 		Auth struct {
 			Users map[string]string `yaml:"userpass"`
 		} `yaml:"auth"`
+		TrafficStats struct {
+			Listen string `yaml:"listen"`
+			Secret string `yaml:"secret"`
+		} `yaml:"trafficStats"`
 	}
 	if err := yaml.Unmarshal(config, &decoded); err != nil {
 		t.Fatal(err)
@@ -56,6 +60,13 @@ func TestProvisionScriptUntrustedConfiguration(t *testing.T) {
 	if len(decoded.ACME.Domains) != 1 || decoded.ACME.Domains[0] != domain || decoded.ACME.Email != email || decoded.Auth.Users["Admin"] != password {
 		t.Fatalf("configuration data changed: %#v", decoded)
 	}
+	if decoded.TrafficStats.Listen != "127.0.0.1:9765" || decoded.TrafficStats.Secret == "" {
+		t.Fatalf("traffic stats misconfigured: %#v", decoded.TrafficStats)
+	}
+}
+
+func provisionTestScript(domain string) (string, error) {
+	return provisionScript(provisionRequest{Domain: domain, Email: "a@example.com", SSHPort: 2222}, "password", "statssecret")
 }
 
 func TestProvisionScriptRefusesUnprivilegedBeforeMutations(t *testing.T) {
@@ -66,7 +77,7 @@ func TestProvisionScriptRefusesUnprivilegedBeforeMutations(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bin, "id"), []byte("#!/bin/sh\nprintf '12345\\n'\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	script, err := provisionScript(provisionRequest{Domain: "vpn.example.com", SSHPort: 22}, "password")
+	script, err := provisionScript(provisionRequest{Domain: "vpn.example.com", SSHPort: 22}, "password", "statssecret")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +91,7 @@ func TestProvisionScriptRefusesUnprivilegedBeforeMutations(t *testing.T) {
 }
 
 func TestProvisionScriptGuardsExistingServersAndReadiness(t *testing.T) {
-	script, err := provisionScript(provisionRequest{Domain: "vpn.example.com", SSHPort: 2222}, "password")
+	script, err := provisionScript(provisionRequest{Domain: "vpn.example.com", SSHPort: 2222}, "password", "statssecret")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,11 +114,11 @@ func TestProvisionScriptGuardsExistingServersAndReadiness(t *testing.T) {
 
 func TestProvisionScriptRejectsIncompleteInput(t *testing.T) {
 	for _, req := range []provisionRequest{{}, {Domain: "vpn.example.com", SSHPort: -1}, {Domain: "vpn.example.com", SSHPort: 65536}} {
-		if _, err := provisionScript(req, "password"); err == nil {
+		if _, err := provisionScript(req, "password", "statssecret"); err == nil {
 			t.Fatal("incomplete input accepted")
 		}
 	}
-	if _, err := provisionScript(provisionRequest{Domain: "vpn.example.com", SSHPort: 22}, ""); err == nil {
+	if _, err := provisionScript(provisionRequest{Domain: "vpn.example.com", SSHPort: 22}, "", "statssecret"); err == nil {
 		t.Fatal("empty VPN password accepted")
 	}
 }

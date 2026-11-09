@@ -28,6 +28,7 @@ type apiServer struct {
 	token  string
 	srv    *http.Server
 	deploy *provisionManager
+	admin  *adminManager
 }
 
 func newToken() string {
@@ -39,7 +40,7 @@ func newToken() string {
 // startAPI listens on listen (127.0.0.1:port). The token is written to
 // <dir>/token so that a local GUI process can find it.
 func startAPI(e *Engine, listen string, secure bool) (*apiServer, string, error) {
-	a := &apiServer{e: e, token: newToken(), deploy: newProvisionManager(e)}
+	a := &apiServer{e: e, token: newToken(), deploy: newProvisionManager(e), admin: newAdminManager(e)}
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {
 		return nil, "", err
@@ -64,6 +65,15 @@ func startAPI(e *Engine, listen string, secure bool) (*apiServer, string, error)
 	mux.HandleFunc("/api/servers/share", a.guard(a.serverShare))
 	mux.HandleFunc("/api/servers/qr", a.guard(a.serverQR))
 	mux.HandleFunc("/api/servers/deploy", a.guard(a.serverDeploy))
+	mux.HandleFunc("/api/admin/status", a.guard(a.adminStatus))
+	mux.HandleFunc("/api/admin/attach", a.guard(a.adminAttach))
+	mux.HandleFunc("/api/admin/detach", a.guard(a.adminDetach))
+	mux.HandleFunc("/api/admin/users", a.guard(a.adminUsers))
+	mux.HandleFunc("/api/admin/users/add", a.guard(a.adminUserAdd))
+	mux.HandleFunc("/api/admin/users/delete", a.guard(a.adminUserDelete))
+	mux.HandleFunc("/api/admin/userlink", a.guard(a.adminUserLink))
+	mux.HandleFunc("/api/admin/stats/enable", a.guard(a.adminStatsEnable))
+	mux.HandleFunc("/api/admin/stats/reset", a.guard(a.adminStatsReset))
 	mux.HandleFunc("/api/connect", a.guard(a.connect))
 	mux.HandleFunc("/api/disconnect", a.guard(a.disconnect))
 	mux.HandleFunc("/api/app", a.guard(a.app))
@@ -160,7 +170,7 @@ func (a *apiServer) state(w http.ResponseWriter, r *http.Request) {
 	st := a.e.status()
 	writeJSON(w, map[string]any{
 		"status":  st,
-		"servers": a.e.store.views(st.ServerID),
+		"servers": a.e.serverViews(st.ServerID),
 		"auto":    a.e.store.autoConnect(),
 		"lang":    lang(),
 		"build":   selfBuildID(),
@@ -210,7 +220,7 @@ func (a *apiServer) installed(w http.ResponseWriter, r *http.Request) {
 // servers: GET lists, POST adds a profile from a hy2:// link.
 func (a *apiServer) servers(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
-		writeJSON(w, a.e.store.views(a.e.status().ServerID))
+		writeJSON(w, a.e.serverViews(a.e.status().ServerID))
 		return
 	}
 	var body struct {
@@ -226,7 +236,7 @@ func (a *apiServer) servers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("server added: %s", srv.Name)
-	writeJSON(w, a.e.store.views(a.e.status().ServerID))
+	writeJSON(w, a.e.serverViews(a.e.status().ServerID))
 }
 
 func (a *apiServer) serverDelete(w http.ResponseWriter, r *http.Request) {
@@ -245,7 +255,8 @@ func (a *apiServer) serverDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, a.e.store.views(st.ServerID))
+	a.e.admin.remove(body.ID) // forget the admin-panel SSH access as well
+	writeJSON(w, a.e.serverViews(st.ServerID))
 }
 
 // serverShare returns the full link of one profile so the user can pass it on.
@@ -267,14 +278,19 @@ func (a *apiServer) serverShare(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"name": srv.Name, "link": srv.Link})
 }
 
-// serverQR renders the link as a QR code (PNG) for scanning with a phone.
+// serverQR renders a share link as a QR code (PNG). By default the QR carries
+// the server's own link; the admin panel passes a per-user link in «link».
 func (a *apiServer) serverQR(w http.ResponseWriter, r *http.Request) {
-	srv, ok := a.e.store.getExact(r.URL.Query().Get("id"))
-	if !ok {
-		http.NotFound(w, r)
-		return
+	link := r.URL.Query().Get("link")
+	if link == "" {
+		srv, ok := a.e.store.getExact(r.URL.Query().Get("id"))
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		link = srv.Link
 	}
-	png, err := qrcode.Encode(srv.Link, qrcode.Medium, 360)
+	png, err := qrcode.Encode(link, qrcode.Medium, 360)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
