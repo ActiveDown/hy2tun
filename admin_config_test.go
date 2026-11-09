@@ -157,6 +157,35 @@ func TestAdminConfigTrafficStats(t *testing.T) {
 	}
 }
 
+func TestAdminConfigDisableTrafficStats(t *testing.T) {
+	root, err := confParse(sampleAdminConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, _ := confUser(root, adminReserveUser)
+	changed, err := confDisableTrafficStats(root)
+	if err != nil || !changed {
+		t.Fatalf("disable stats: changed=%v err=%v", changed, err)
+	}
+	other, encoded := confRoundTrip(t, root)
+	if _, _, enabled := confTrafficStats(other); enabled || strings.Contains(encoded, "trafficStats:") {
+		t.Fatal("the stats listener was not removed")
+	}
+	if pass, err := confUser(other, adminReserveUser); err != nil || pass != owner {
+		t.Fatal("disabling statistics changed the owner")
+	}
+	if !strings.Contains(encoded, "vpn.example.com") || !strings.Contains(encoded, "/var/www/masq") {
+		t.Fatal("unrelated sections were changed")
+	}
+	if changed, err := confDisableTrafficStats(other); err != nil || changed {
+		t.Fatal("disabling absent statistics must be idempotent")
+	}
+	root, _ = confParse("auth: {type: userpass, userpass: {Admin: p}}\ntrafficStats: {}\n")
+	if changed, err := confDisableTrafficStats(root); err != nil || !changed {
+		t.Fatal("an empty stats section must also be removed")
+	}
+}
+
 func TestAdminConfigScalarDataStaysData(t *testing.T) {
 	root, err := confParse(sampleAdminConfig)
 	if err != nil {

@@ -181,6 +181,22 @@ func confSetTrafficStats(root *yaml.Node, listen, secret string) error {
 	return nil
 }
 
+// confDisableTrafficStats removes only the managed stats section. Hysteria
+// disables its API when the section is absent; an empty mapping is not enough.
+func confDisableTrafficStats(root *yaml.Node) (bool, error) {
+	m, err := confTopMapping(root)
+	if err != nil {
+		return false, err
+	}
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == "trafficStats" {
+			m.Content = append(m.Content[:i], m.Content[i+2:]...)
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // confEncode serializes the document back into text.
 func confEncode(root *yaml.Node) ([]byte, error) {
 	return yaml.Marshal(root)

@@ -120,6 +120,12 @@ pre{margin:0;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:br
 .admin-u .n{flex:1;min-width:140px}
 .admin-u .n b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .admin-u .n .tag{margin-left:6px}
+.admin-user-stats{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:5px}
+.admin-user-stats .tag{margin-left:0!important}
+.admin-totals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0}
+.admin-totals[hidden]{display:none}
+.admin-totals>div{padding:9px;background:var(--card2);border:1px solid var(--line);border-radius:10px;font-size:12px;color:var(--mut)}
+.admin-totals b{display:block;font-size:15px;color:var(--tx);margin-top:2px}
 .admin-u .acts{display:flex;gap:6px;flex:none}
 .admin-section{border-top:1px solid var(--line);margin-top:16px;padding-top:14px}
 .admin-section h3{font-size:15px;margin:0 0 10px}
@@ -341,10 +347,12 @@ pre{margin:0;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:br
     <div class="admin-actions">
       <button class="btn sm" id="adminRefresh" data-i18n="admin.refresh">Refresh</button>
       <button class="btn sm" id="adminEnableStats" style="display:none" data-i18n="admin.enablestats">Enable traffic stats</button>
+      <button class="btn sm" id="adminDisableStats" style="display:none" data-i18n="admin.disablestats">Disable traffic stats</button>
       <button class="btn sm dng" id="adminDetachBtn" data-i18n="admin.detach">Forget SSH access</button>
     </div>
     <section class="admin-section" id="adminUserSection">
     <h3 data-i18n="admin.users">Users</h3>
+    <div id="adminTotals" class="admin-totals" hidden></div>
     <div id="adminUsers"></div>
     <div id="adminStatsWarning" class="mut small" role="status"></div>
     <div class="add" style="margin-top:10px">
@@ -354,7 +362,7 @@ pre{margin:0;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:br
       <button class="btn pri" id="adminAddBtn" data-i18n="btn.add">Add</button>
     </div>
     <p class="mut small admin-note" data-i18n="admin.note">Adding or removing a user briefly restarts hysteria-server — clients reconnect automatically. Admin is the server owner: it cannot be deleted.</p>
-    <p class="mut small" data-i18n="admin.traffic">↓ users' download · ↑ users' upload, since the server restart.</p>
+    <p class="mut small" id="adminTrafficNote" data-i18n="admin.traffic">↓ users' download · ↑ users' upload, since the server restart. Refreshes every 15 seconds.</p>
     </section>
   </div>
   <div class="err" id="adminError" role="alert"></div>
@@ -429,11 +437,20 @@ const L={
   'admin.stats':'Traffic stats',
   'admin.statson':'Enabled',
   'admin.statsoff':'Disabled',
+  'admin.statsfailed':'Enabled, but API unavailable',
+  'admin.statsoffhint':'Traffic statistics are disabled. Enable them to see online connections and traffic counters.',
+  'admin.offline':'offline',
+  'admin.download':'Downloaded',
+  'admin.upload':'Uploaded',
+  'admin.connections':'Connections',
+  'admin.statsnodata':'Traffic data unavailable',
+  'admin.disablestats':'Disable traffic stats',
+  'admin.disablestatsq':'Disable traffic statistics on the server? Hysteria restarts briefly; the current counters will be lost. VPN users keep their access.',
   'admin.enablestats':'Enable traffic stats',
   'admin.version':'Version',
   'admin.needuserpass':'The panel works only with the auth: userpass configuration.',
   'admin.note':'Adding or removing a user briefly restarts hysteria-server — clients reconnect automatically. Admin is the server owner: it cannot be deleted.',
-  'admin.traffic':'↓ users\u2019 download · ↑ users\u2019 upload, since the server restart.',
+  'admin.traffic':'↓ users\u2019 download · ↑ users\u2019 upload, since the server restart. Refreshes every 15 seconds.',
   "deploy.start":"Set up server",
   "deploy.running":"Setting up the server…",
   "deploy.awaiting":"Confirm the SSH server",
@@ -557,11 +574,20 @@ const L={
   'admin.stats':'Статистика трафика',
   'admin.statson':'включена',
   'admin.statsoff':'выключена',
+  'admin.statsfailed':'включена, но API недоступен',
+  'admin.statsoffhint':'Статистика выключена. Включите её, чтобы видеть подключения и счётчики трафика.',
+  'admin.offline':'не в сети',
+  'admin.download':'Скачано',
+  'admin.upload':'Отправлено',
+  'admin.connections':'Подключения',
+  'admin.statsnodata':'Данные трафика недоступны',
+  'admin.disablestats':'Отключить статистику',
+  'admin.disablestatsq':'Отключить статистику на сервере? Hysteria кратко перезапустится, текущие счётчики сбросятся. Доступ пользователей к VPN сохранится.',
   'admin.enablestats':'Включить статистику',
   'admin.version':'Версия',
   'admin.needuserpass':'Панель работает только с настройкой auth: userpass.',
   'admin.note':'Добавление и удаление пользователя кратко перезапускает hysteria-server — клиенты переподключаются сами. Admin — владелец сервера: его удалить нельзя.',
-  'admin.traffic':'↓ пользователи скачали · ↑ пользователи отдали, с последнего рестарта сервера.',
+  'admin.traffic':'↓ пользователи скачали · ↑ пользователи отдали, с последнего рестарта сервера. Обновление каждые 15 секунд.',
   "deploy.start":"Настроить сервер",
   "deploy.running":"Настраиваем сервер…",
   "deploy.awaiting":"Подтвердите SSH-сервер",
@@ -922,6 +948,8 @@ function openAdmin(id){
   $('adminTrust').style.display='none';adminFingerprint='';
   $('adminAttach').style.display=s.admin?'none':'';$('adminPanel').style.display=s.admin?'':'none';
   $('adminRetry').style.display='none';$('adminStatsWarning').textContent='';
+  $('adminTotals').hidden=true;
+  $('adminEnableStats').style.display='none';$('adminDisableStats').style.display='none';
   $('adminStatusGrid').innerHTML=''; $('adminUsers').innerHTML='';
   $('adminNewUser').value=''; $('adminNewPass').value='';
   $('adminModal').classList.add('on');
@@ -947,9 +975,10 @@ async function adminLoad(run){
       '<div class="k">SSH</div><div>'+esc(d.ssh?'OK':t('admin.state.unknown'))+'</div>'+
       '<div class="k">'+esc(t('admin.service'))+'</div><div style="color:var(--' + (d.service==='active'?'ok':d.service==='failed'?'bad':'mut') + ')">'+esc(serviceState(d.service))+'</div>'+
       '<div class="k">'+esc(t('admin.config'))+'</div><div>'+esc(d.config==='config_ok'?t('admin.configok'):d.config==='config_missing'?t('admin.configmiss'):t('admin.state.unknown'))+'</div>'+
-      '<div class="k">'+esc(t('admin.stats'))+'</div><div>'+(d.stats?esc(t('admin.statson')):esc(t('admin.statsoff')))+'</div>'+
+      '<div class="k">'+esc(t('admin.stats'))+'</div><div id="adminStatsState">'+(d.stats?esc(t('admin.statson')):esc(t('admin.statsoff')))+'</div>'+
       (d.version&&d.version!=='unknown'&&!/unknown/.test(d.version)?'<div class="k">'+esc(t('admin.version'))+'</div><div class="mut small">'+esc(d.version)+'</div>':'');
     $('adminEnableStats').style.display=!d.stats&&d.auth==='userpass'&&!d.error?'':'none';
+    $('adminDisableStats').style.display=d.stats&&d.auth==='userpass'&&!d.error?'':'none';
     $('adminUserSection').style.display=d.auth==='userpass'&&!d.error?'':'none';
     if(d.error)throw new Error(d.error);
     if(d.auth!=='userpass')throw new Error(t('admin.needuserpass'));
@@ -959,12 +988,23 @@ async function adminLoad(run){
 function adminStatusRefresh(){return adminRun('admin.loading',adminLoad)}
 async function adminUsersRefresh(run){
     const d=await adminRequest(run,'users?id='+encodeURIComponent(run.id));
-    $('adminStatsWarning').textContent=d.stats_error?t('admin.statsunavailable'):'';
+    adminRenderUsers(d);
+}
+function adminRenderUsers(d){
+    const enabled=d.stats_enabled??d.stats;
+    $('adminStatsWarning').textContent=d.stats_error?t('admin.statsunavailable'):!enabled?t('admin.statsoffhint'):'';
+    if($('adminStatsState'))$('adminStatsState').textContent=t(!enabled?'admin.statsoff':d.stats?'admin.statson':'admin.statsfailed');
+    $('adminEnableStats').style.display=enabled?'none':'';
+    $('adminDisableStats').style.display=enabled?'':'none';
+    $('adminTrafficNote').style.display=d.stats?'':'none';
+    $('adminTotals').hidden=!enabled;
+    const totals=(d.users||[]).reduce((sum,u)=>({tx:sum.tx+(Number(u.tx)||0),rx:sum.rx+(Number(u.rx)||0),online:sum.online+(Number(u.online)||0)}),{tx:0,rx:0,online:0});
+    $('adminTotals').innerHTML=[['admin.download',d.stats?'↓ '+adminBytes(totals.tx):'—'],['admin.upload',d.stats?'↑ '+adminBytes(totals.rx):'—'],['admin.connections',d.stats?totals.online:'—']].map(([key,value])=>'<div>'+esc(t(key))+'<b>'+esc(String(value))+'</b></div>').join('');
     $('adminUsers').innerHTML=(d.users||[]).map(u=>{
-      const online=u.online?'<span class="tag t-tunnel">'+esc(t('admin.online').replace('{0}',u.online))+'</span>':'';
-      const traffic=u.tx||u.rx?'<span class="mut small">↓ '+adminBytes(u.tx)+' · ↑ '+adminBytes(u.rx)+'</span>':'';
+      const online=d.stats?'<span class="tag '+(u.online?'t-tunnel':'mut')+'">'+esc(u.online?t('admin.online').replace('{0}',u.online):t('admin.offline'))+'</span>':'';
+      const traffic=d.stats?'<span class="mut small">↓ '+adminBytes(u.tx)+' · ↑ '+adminBytes(u.rx)+'</span>':enabled?'<span class="mut small">'+esc(t('admin.statsnodata'))+'</span>':'';
       const del=u.owner?'':'<button class="btn sm dng" data-del="'+esc(u.user)+'">'+esc(t('btn.delete'))+'</button>';
-      return '<div class="admin-u"><div class="n"><b>'+esc(u.user)+'</b>'+online+traffic+'</div><div class="acts">'+
+      return '<div class="admin-u"><div class="n"><b>'+esc(u.user)+'</b><div class="admin-user-stats">'+online+traffic+'</div></div><div class="acts">'+
         '<button class="btn sm" data-ulink="'+esc(u.user)+'">'+esc(t('admin.link'))+'</button>'+del+'</div></div>';
     }).join('')||'<div class="mut small">'+esc(t('admin.nousers'))+'</div>';
 }
@@ -999,6 +1039,12 @@ $('adminDetachBtn').onclick=()=>{
 $('adminEnableStats').onclick=()=>adminRun('admin.applying',async run=>{
   await adminRequest(run,'stats/enable',{});await adminLoad(run);
 });
+$('adminDisableStats').onclick=()=>{
+  if(adminBusy||!adminId||!confirm(t('admin.disablestatsq')))return;
+  return adminRun('admin.applying',async run=>{
+    await adminRequest(run,'stats/disable',{});await adminLoad(run);
+  });
+};
 $('adminGenBtn').onclick=()=>{
   const a=new Uint8Array(12);crypto.getRandomValues(a);
   $('adminNewPass').value=[...a].map(x=>x.toString(16).padStart(2,'0')).join('');

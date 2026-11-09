@@ -24,6 +24,8 @@ type adminSSHFixture struct {
 	mu          sync.Mutex
 	config      string
 	statsDown   bool
+	zeroStats   bool
+	failWrites  bool
 	service     string
 	connections atomic.Int32
 	commands    atomic.Int32
@@ -109,6 +111,9 @@ func (f *adminSSHFixture) run(script string) (string, uint32) {
 	case script == adminScriptStatus():
 		return "HY2TUN_PAYLOAD\nservice=" + f.service + "\nconfig=config_ok\nversion=v2.test\nHY2TUN_CONFIG\n" + f.config, 0
 	case strings.Contains(script, "HY2TUN_CONFIG\n"):
+		if f.failWrites {
+			return "HY2TUN_ERROR:service_down\n", 1
+		}
 		_, tail, _ := strings.Cut(script, "<<'HY2TUN_CONFIG'\n")
 		data, _, _ := strings.Cut(tail, "\nHY2TUN_CONFIG")
 		decoded, err := base64.StdEncoding.DecodeString(data)
@@ -120,6 +125,9 @@ func (f *adminSSHFixture) run(script string) (string, uint32) {
 	case strings.Contains(script, "curl -fsS"):
 		if f.statsDown {
 			return "HY2TUN_ERROR:stats_unavailable\n", 1
+		}
+		if f.zeroStats {
+			return "HY2TUN_PAYLOAD\n{}\n", 0
 		}
 		if strings.Contains(script, "/online\"") {
 			return "HY2TUN_PAYLOAD\n{\"Admin\":2}\n", 0
@@ -258,6 +266,70 @@ func TestAdminSSHTrustAndCacheLifecycle(t *testing.T) {
 	}
 	if st := m.Status(req.ID); st.Error == "" || m.cur != nil {
 		t.Fatalf("saved credentials must never auto-trust an unknown key: %+v", st)
+	}
+}
+
+func TestAdminSSHZeroStatsAreAvailable(t *testing.T) {
+	f := newAdminSSHFixture(t)
+	f.zeroStats = true
+	m, req := f.manager(t)
+	attachAdminFixture(t, m, req)
+	res, err := m.Users(req.ID)
+	if err != nil || !res.StatsEnabled || !res.Stats || res.StatsError != "" || len(res.Users) != 1 {
+		t.Fatalf("empty traffic maps must be available zero counters: %+v %v", res, err)
+	}
+	if u := res.Users[0]; u.Tx != 0 || u.Rx != 0 || u.Online != 0 {
+		t.Fatal("empty maps must produce an offline user with zero bytes")
+	}
+}
+
+func TestAdminSSHDisableAndReenableStats(t *testing.T) {
+	f := newAdminSSHFixture(t)
+	m, req := f.manager(t)
+	attachAdminFixture(t, m, req)
+	if err := m.DisableStats(req.ID); err != nil {
+		t.Fatal(err)
+	}
+	cred, ok := m.e.admin.get(req.ID)
+	if !ok || cred.StatsPort != 0 || cred.StatsSecret != "" || cred.Password != req.Password {
+		t.Fatal("disable must clear only saved stats credentials, not SSH access")
+	}
+	st := m.Status(req.ID)
+	if st.Error != "" || st.Stats || st.Auth != "userpass" || st.Service != "active" {
+		t.Fatalf("service and users must remain available: %+v", st)
+	}
+	before := f.commands.Load()
+	res, err := m.Users(req.ID)
+	if err != nil || res.StatsEnabled || res.Stats || len(res.Users) != 1 || f.commands.Load()-before != 1 {
+		t.Fatalf("disabled stats must not be probed: %+v %v", res, err)
+	}
+	before = f.commands.Load()
+	if err := m.DisableStats(req.ID); err != nil || f.commands.Load()-before != 1 {
+		t.Fatal("already-disabled stats must not restart the service")
+	}
+	if err := m.EnableStats(req.ID); err != nil {
+		t.Fatal(err)
+	}
+	res, err = m.Users(req.ID)
+	if err != nil || !res.StatsEnabled || !res.Stats {
+		t.Fatalf("re-enabling stats must restore counters: %+v %v", res, err)
+	}
+}
+
+func TestAdminSSHDisableStatsFailurePreservesCredentials(t *testing.T) {
+	f := newAdminSSHFixture(t)
+	m, req := f.manager(t)
+	attachAdminFixture(t, m, req)
+	before, _ := m.e.admin.get(req.ID)
+	f.mu.Lock()
+	f.failWrites = true
+	f.mu.Unlock()
+	if err := m.DisableStats(req.ID); err == nil {
+		t.Fatal("a rejected config must fail the operation")
+	}
+	after, _ := m.e.admin.get(req.ID)
+	if before.StatsPort != after.StatsPort || before.StatsSecret != after.StatsSecret {
+		t.Fatal("failed disable cleared valid credentials")
 	}
 }
 

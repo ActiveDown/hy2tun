@@ -20,7 +20,7 @@ if [ "${1:-}" = "--lib" ]; then
     LIB_ONLY=1
     shift
 fi
-VERSION="${1:-1.2.0}"
+VERSION="${1:-1.2.1}"
 OUT_DIR="${2:-dist}"
 API=26
 

@@ -50,6 +50,14 @@ func TestAdminAPINeedsAttachedServer(t *testing.T) {
 	if resp.StatusCode != http.StatusConflict || !strings.Contains(string(body), "SSH") {
 		t.Fatalf("userlink without attach: %d %s", resp.StatusCode, body)
 	}
+	resp, body = h.do("POST", "/api/admin/stats/disable", `{"id":"`+id+`"}`)
+	if resp.StatusCode != http.StatusConflict || !strings.Contains(string(body), "SSH") {
+		t.Fatalf("disable stats without attach: %d %s", resp.StatusCode, body)
+	}
+	resp, _ = h.do("GET", "/api/admin/stats/disable", "")
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("disabling stats must require POST: %d", resp.StatusCode)
+	}
 
 	resp, body = h.do("POST", "/api/admin/detach", `{"id":"`+id+`"}`)
 	if resp.StatusCode != http.StatusNoContent {
@@ -109,6 +117,34 @@ func TestAdminAPIServerDeleteForgetsAccess(t *testing.T) {
 	}
 	if h.e.admin.has(id) {
 		t.Fatal("the SSH access must be forgotten with the server")
+	}
+}
+
+func TestAdminAPIStatsToggle(t *testing.T) {
+	f := newAdminSSHFixture(t)
+	m, req := f.manager(t)
+	attachAdminFixture(t, m, req)
+	a, u, err := startAPI(m.e, "127.0.0.1:0", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.admin = m
+	t.Cleanup(a.close)
+	i := strings.Index(u, "/?t=")
+	h := &apiHarness{t: t, e: m.e, base: u[:i], token: u[i+4:]}
+	for _, action := range []string{"disable", "enable"} {
+		resp, body := h.do("POST", "/api/admin/stats/"+action, `{"id":"`+req.ID+`"}`)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("stats %s: %d %s", action, resp.StatusCode, body)
+		}
+		resp, body = h.do("GET", "/api/admin/users?id="+req.ID, "")
+		var res adminUsersResult
+		if resp.StatusCode != http.StatusOK || json.Unmarshal(body, &res) != nil || len(res.Users) != 1 || res.Stats != (action == "enable") || res.StatsEnabled != (action == "enable") {
+			t.Fatalf("stats state after %s: %d %s", action, resp.StatusCode, body)
+		}
+		if strings.Contains(string(body), req.Password) || strings.Contains(string(body), "StatsSecret") {
+			t.Fatal("statistics response leaked saved credentials")
+		}
 	}
 }
 

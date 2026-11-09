@@ -2,13 +2,13 @@
 .SYNOPSIS
   Builds Android JNI libraries and an APK on Windows with the Android SDK/NDK.
 .EXAMPLE
-  .\scripts\build_android.ps1 -Version 1.2.0 -AndroidSdk C:\Android\Sdk -Jdk C:\Java\jdk-21
+  .\scripts\build_android.ps1 -Version 1.2.1 -AndroidSdk C:\Android\Sdk -Jdk C:\Java\jdk-21
 .NOTES
   Uses android/keystore.properties for release signing when present. Otherwise
   produces an explicitly named debug APK; no keys or credentials enter Git.
 #>
 param(
-    [string] $Version = '1.2.0',
+    [string] $Version = '1.2.1',
     [string] $OutDir = 'dist',
     [string] $AndroidSdk = $env:ANDROID_HOME,
     [string] $AndroidNdk = $env:ANDROID_NDK_HOME,

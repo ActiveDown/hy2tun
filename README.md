@@ -4,8 +4,8 @@ A Windows, macOS and Android client for [Hysteria 2](https://v2.hysteria.network
 **per-application routing** and a window in the style of Amnezia. Written in Go on top of the official
 `hysteria/core/v2` library.
 
-> **Windows and Android: 1.2.0. macOS: 1.1.0.** Windows and Android include
-> the repaired SSH admin panel and the IPv6 connection fallback. The existing
+> **Windows and Android: 1.2.1. macOS: 1.1.0.** Windows and Android include
+> the SSH admin panel with visible zero counters, a traffic-stats toggle and the IPv6 connection fallback. The existing
 > macOS packages are unchanged; they do not include these newer features.
 
 ## Features
@@ -35,6 +35,8 @@ A Windows, macOS and Android client for [Hysteria 2](https://v2.hysteria.network
   profile; it stays on this device in the protected app data. The server's
   config is edited in place (backup kept on the server) and hysteria-server
   restarts briefly — clients reconnect automatically.
+  Traffic counters include zero values and an explicit offline state. Statistics
+  can be enabled or disabled from the panel; a restart resets the counters.
 - **Obfuscation and port hopping**: `obfs=salamander` (or `gecko`) with `obfs-password`, a port range in the
   address (`host:20000-30000`) or `mport=20000-30000`, `hop-interval=<seconds>`, and `pinSHA256` certificate pinning.
 - **English and Russian** UI (English by default).
@@ -101,11 +103,11 @@ TUN, the app builds the interface with `VpnService` and hands over the file desc
 Tools → *NDK (Side by side)*) and JDK 17+ (the script uses the one bundled with Android Studio).
 
 ```bash
-./scripts/build_android.sh 1.2.0          # libraries + APK -> dist/Hy2Tun-1.2.0-android[-debug].apk
+./scripts/build_android.sh 1.2.1          # libraries + APK -> dist/Hy2Tun-1.2.1-android[-debug].apk
 ./scripts/build_android.sh --lib          # libraries only (then build/run from Android Studio)
 ```
 
-On Windows, use `scripts/build_android.ps1 -Version 1.2.0 -AndroidSdk <sdk> -Jdk <jdk>`
+On Windows, use `scripts/build_android.ps1 -Version 1.2.1 -AndroidSdk <sdk> -Jdk <jdk>`
 with SDK 36, build-tools 36.0.0 and NDK 27.0.12077973 installed. The same three
 ABIs are built. Without the original release keystore, the output is a debug APK
 and cannot be assumed to update an existing release installation.
@@ -178,7 +180,7 @@ if browser storage is unavailable. There are no external assets, databases or
 server writes for this page's user data.
 
 Windows release packages can also be cross-built on macOS/Linux using
-`./scripts/build_windows.sh 1.2.0`. It verifies the pinned Wintun DLL and writes a
+`./scripts/build_windows.sh 1.2.1`. It verifies the pinned Wintun DLL and writes a
 GUI installer, portable archive and `SHA256SUMS-windows.txt` to `dist/`.
 
 Portable (foreground, administrator / root rights needed):

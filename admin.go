@@ -77,10 +77,11 @@ type adminUser struct {
 }
 
 type adminUsersResult struct {
-	Users      []adminUser `json:"users"`
-	Stats      bool        `json:"stats"`
-	Auth       string      `json:"auth,omitempty"`
-	StatsError string      `json:"stats_error,omitempty"`
+	Users        []adminUser `json:"users"`
+	Stats        bool        `json:"stats"`
+	StatsEnabled bool        `json:"stats_enabled"`
+	Auth         string      `json:"auth,omitempty"`
+	StatsError   string      `json:"stats_error,omitempty"`
 }
 
 type userTraffic struct {
@@ -632,6 +633,7 @@ func (m *adminManager) Users(id string) (adminUsersResult, error) {
 		traffic := map[string]userTraffic{}
 		online := map[string]int{}
 		if cred.StatsPort != 0 {
+			res.StatsEnabled = true
 			res.Stats = true
 			if p, perr := m.probe(cc, cred, "traffic"); perr != nil || json.Unmarshal([]byte(p), &traffic) != nil {
 				res.Stats = false
@@ -809,6 +811,35 @@ func (m *adminManager) EnableStats(id string) error {
 		}
 		cred.StatsPort = adminStatsListenPort
 		cred.StatsSecret = secret
+		return m.e.admin.set(id, cred)
+	})
+}
+
+// DisableStats stops the server's Traffic Stats API without changing users or
+// any unrelated configuration. Saved endpoint credentials are cleared only
+// after the new configuration has been accepted (writeAndRestart rolls back).
+func (m *adminManager) DisableStats(id string) error {
+	_, cred, err := m.serverCert(id)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.withSSH(id, cred, func(cc *adminSSHClient) error {
+		root, err := m.readConfig(cc, cred)
+		if err != nil {
+			return err
+		}
+		changed, err := confDisableTrafficStats(root)
+		if err != nil {
+			return err
+		}
+		if changed {
+			if err := m.writeAndRestart(cc, cred, root); err != nil {
+				return err
+			}
+		}
+		cred.StatsPort, cred.StatsSecret = 0, ""
 		return m.e.admin.set(id, cred)
 	})
 }
@@ -1028,6 +1059,20 @@ func (a *apiServer) adminStatsEnable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.admin.EnableStats(body.ID); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func (a *apiServer) adminStatsDisable(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ID string `json:"id"`
+	}
+	if !readJSON(w, r, &body, 1024) {
+		return
+	}
+	if err := a.admin.DisableStats(body.ID); err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}

@@ -40,7 +40,7 @@ func TestAdminLiveReadOnly(t *testing.T) {
 	started := time.Now()
 	payload, code, err := m.exec(cc, c.Username, adminScriptStatus())
 	if err != nil || code != "" || !strings.Contains(payload, "service=active") {
-		t.Fatalf("status: code=%q err=%v payload=%q", code, err, payload)
+		t.Fatalf("status: code=%q err=%v active=%v", code, err, strings.Contains(payload, "service=active"))
 	}
 	root, err := m.readConfig(cc, c)
 	if err != nil {
@@ -58,5 +58,21 @@ func TestAdminLiveReadOnly(t *testing.T) {
 			}
 		}
 	}
+	// Exercise the same Users path as the panel, keeping test access only in
+	// memory. Neither server configuration nor a saved password file is changed.
+	const id = "live-read-only"
+	e.store.d.Servers = []Server{{ID: id, Name: "Live check", Link: "hy2://test@127.0.0.1:443"}}
+	e.admin.creds[id] = c
+	m.cur, m.curID, m.idle = cc, id, time.Now()
+	res, err := m.Users(id)
+	if err != nil || res.StatsError != "" || len(res.Users) != len(users) {
+		t.Fatalf("panel users/stats: users=%d stats=%v error=%v", len(res.Users), res.Stats, err)
+	}
+	var tx, rx int64
+	var online int
+	for _, user := range res.Users {
+		tx, rx, online = tx+user.Tx, rx+user.Rx, online+user.Online
+	}
+	t.Logf("Panel stats: enabled=%v available=%v downloaded=%d uploaded=%d connections=%d", res.StatsEnabled, res.Stats, tx, rx, online)
 	t.Logf("Read-only checks passed: %d users; elapsed %s; remote %s", len(users), time.Since(started).Round(time.Millisecond), net.JoinHostPort(host, "22"))
 }
