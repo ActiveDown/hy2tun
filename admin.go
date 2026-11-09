@@ -787,6 +787,7 @@ func (a *apiServer) adminAttach(w http.ResponseWriter, r *http.Request) {
 	st, err := a.admin.Attach(body)
 	if err != nil {
 		if fp, ok := adminTrustNeed(err); ok {
+			w.WriteHeader(http.StatusConflict)
 			writeJSON(w, map[string]any{"awaiting_host_key": true, "fingerprint": fp})
 			return
 		}
