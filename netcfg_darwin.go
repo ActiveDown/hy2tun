@@ -103,6 +103,14 @@ type netConfig struct {
 	scopedIf   string // interface that got our scoped default route ("" = none)
 }
 
+func newNetConfig(name string, serverIP net.IP, hostGW *physRoute, _ bool) *netConfig {
+	return &netConfig{name: name, serverIP: serverIP, hostGW: hostGW}
+}
+
+// setV6 is a no-op on macOS: the utun adapter always carries IPv6 and every v6
+// destination is captured into the tunnel.
+func (n *netConfig) setV6(bool) error { return nil }
+
 // scopedDefaultArgs builds the arguments of `route <cmd>` for the default route
 // that is scoped to a physical interface.
 func scopedDefaultArgs(cmd string, rt *physRoute) []string {

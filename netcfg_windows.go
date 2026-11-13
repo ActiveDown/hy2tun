@@ -17,6 +17,7 @@ const (
 	tunV4Mask = "255.255.255.252"
 	tunV4GW   = "198.18.77.2"
 	tunV6Addr = "fdfe:dcba:9876::1/126"
+	tunV6Host = "fdfe:dcba:9876::1"
 	tunV6GW   = "fdfe:dcba:9876::2"
 )
 
@@ -35,6 +36,9 @@ func run(name string, args ...string) (string, error) {
 func ps(script string) (string, error) {
 	return run("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
 }
+
+// psQuote makes s safe inside a PowerShell single-quoted string.
+func psQuote(s string) string { return strings.ReplaceAll(s, "'", "''") }
 
 // physRoute is the current best (non-tunnel) route to a destination.
 type physRoute struct {
@@ -76,7 +80,16 @@ type netConfig struct {
 	name     string
 	serverIP net.IP
 	hostGW   *physRoute
-	applied  bool
+	// captureV6 enables IPv6 on the tunnel adapter and sends every v6
+	// destination into it. Off when the physical network has no IPv6: there is
+	// nothing to capture or leak, and the adapter stays IPv4-only, as the
+	// "IP версии 6 (TCP/IPv6)" checkbox in its properties shows.
+	captureV6 bool
+	applied   bool
+}
+
+func newNetConfig(name string, serverIP net.IP, hostGW *physRoute, physV6 bool) *netConfig {
+	return &netConfig{name: name, serverIP: serverIP, hostGW: hostGW, captureV6: physV6}
 }
 
 func (n *netConfig) hostRouteArgs(verb string) []string {
@@ -141,16 +154,61 @@ func (n *netConfig) apply(dnsServers []string) error {
 		}
 	}
 
-	// IPv6: capture it too, otherwise v6 traffic would bypass the tunnel.
-	v6 := [][]string{
-		{"interface", "ipv6", "set", "address", "interface=" + n.name, "address=" + tunV6Addr, "store=active"},
+	if err := n.setV6(n.captureV6); err != nil {
+		log.Printf("warn: ipv6 setup: %v", err)
+	}
+	return nil
+}
+
+// setV6 turns the IPv6 protocol of the tunnel adapter on or off. When on, the
+// adapter also gets its address and the two routes that capture every v6
+// destination, otherwise v6 traffic would bypass the tunnel. When off, the
+// adapter is left IPv4-only and the "IP версии 6 (TCP/IPv6)" component is
+// unchecked in its properties.
+func (n *netConfig) setV6(on bool) error {
+	script := fmt.Sprintf(`Set-NetAdapterBinding -Name '%s' -ComponentID ms_tcpip6 -Enabled $%t -ErrorAction Stop`,
+		psQuote(n.name), on)
+	out, err := ps(script)
+	if err != nil && !on {
+		return fmt.Errorf("ms_tcpip6=off: %v: %s", err, out)
+	}
+	if err != nil {
+		// The component may already be bound: carry on and configure it.
+		log.Printf("warn: enable IPv6 on %s: %v: %s", n.name, err, out)
+	}
+	if !on {
+		return nil
+	}
+	return n.applyV6()
+}
+
+// applyV6 gives the adapter its address and the routes into the tunnel. The
+// protocol may have just been enabled, so the address is set with retries.
+func (n *netConfig) applyV6() error {
+	// A reused adapter may still hold the configuration of an earlier session.
+	run("netsh", "interface", "ipv6", "delete", "address", "interface="+n.name, "address="+tunV6Host)
+	for _, p := range []string{"::/1", "8000::/1"} {
+		run("netsh", "interface", "ipv6", "delete", "route", p, "interface="+n.name)
+	}
+	setAddr := []string{"interface", "ipv6", "set", "address", "interface=" + n.name, "address=" + tunV6Addr, "store=active"}
+	var out string
+	var err error
+	for i := 0; i < 20; i++ {
+		if out, err = run("netsh", setAddr...); err == nil {
+			break
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	if err != nil {
+		return fmt.Errorf("netsh %s: %v: %s", strings.Join(setAddr, " "), err, out)
+	}
+	routes := [][]string{
 		{"interface", "ipv6", "add", "route", "::/1", n.name, tunV6GW, "metric=1", "store=active"},
 		{"interface", "ipv6", "add", "route", "8000::/1", n.name, tunV6GW, "metric=1", "store=active"},
 	}
-	for _, s := range v6 {
+	for _, s := range routes {
 		if out, err := run("netsh", s...); err != nil {
-			log.Printf("warn: ipv6 setup (%s): %v: %s", strings.Join(s, " "), err, out)
-			break
+			return fmt.Errorf("netsh %s: %v: %s", strings.Join(s, " "), err, out)
 		}
 	}
 	return nil

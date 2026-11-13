@@ -87,5 +87,13 @@ type netConfig struct {
 	hostGW   *physRoute
 }
 
+func newNetConfig(name string, serverIP net.IP, hostGW *physRoute, _ bool) *netConfig {
+	return &netConfig{name: name, serverIP: serverIP, hostGW: hostGW}
+}
+
+// setV6 is a no-op on Android: VpnService.Builder always sets the interface's
+// IPv6 address and routes.
+func (n *netConfig) setV6(bool) error { return nil }
+
 func (n *netConfig) apply(dnsServers []string) error { return nil }
 func (n *netConfig) revert()                         {}

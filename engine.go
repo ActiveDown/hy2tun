@@ -441,7 +441,9 @@ func (e *Engine) establish(srv Server) (s *session, err error) {
 	tn.start()
 	cleanup = append(cleanup, func() { tn.close() })
 
-	nc := &netConfig{name: e.opts.TunName, serverIP: serverIP, hostGW: rt}
+	// Without a known physical route the IPv6 state is unknown: keep capturing
+	// v6 rather than risk letting it bypass the tunnel.
+	nc := newNetConfig(e.opts.TunName, serverIP, rt, rt == nil || e.router.physV6)
 	if err = nc.apply(e.opts.DNS); err != nil {
 		nc.revert()
 		return nil, fmt.Errorf(tr("настройка сети: %v", "network setup: %v"), err)
@@ -521,7 +523,14 @@ func (e *Engine) rebind(s *session, rt *physRoute, resumed, sameRoute bool) {
 			}
 			e.router.hasDirect = s.direct != nil
 		}
-		e.router.physV6 = hasGlobalV6(rt.IfIndex)
+		if v6 := hasGlobalV6(rt.IfIndex); v6 != e.router.physV6 {
+			e.router.physV6 = v6
+			// Follow the new network: capture v6 where it exists, leave the
+			// adapter IPv4-only where it does not.
+			if err := s.nc.setV6(v6); err != nil {
+				log.Printf("network: IPv6: %v", err)
+			}
+		}
 	}
 	// The QUIC connection is bound to the old path: start a fresh client.
 	if nc, err := newHysteriaClient(s.link, s.serverIP, true); err == nil {

@@ -4,8 +4,10 @@ A Windows, macOS and Android client for [Hysteria 2](https://v2.hysteria.network
 **per-application routing** and a window in the style of Amnezia. Written in Go on top of the official
 `hysteria/core/v2` library.
 
-> **Windows and Android: 1.2.1. macOS: 1.1.0.** Windows and Android include
-> the SSH admin panel with visible zero counters, a traffic-stats toggle and the IPv6 connection fallback. The existing
+> **Windows: 1.2.2. Android: 1.2.1. macOS: 1.1.0.** Windows 1.2.2 fixes the
+> growing Wintun adapter number and turns IPv6 off on the tunnel adapter when the
+> network has none. Android 1.2.1 includes the SSH admin panel with visible zero
+> counters, a traffic-stats toggle and the IPv6 connection fallback. The existing
 > macOS packages are unchanged; they do not include these newer features.
 
 ## Features
@@ -180,7 +182,7 @@ if browser storage is unavailable. There are no external assets, databases or
 server writes for this page's user data.
 
 Windows release packages can also be cross-built on macOS/Linux using
-`./scripts/build_windows.sh 1.2.1`. It verifies the pinned Wintun DLL and writes a
+`./scripts/build_windows.sh 1.2.2`. It verifies the pinned Wintun DLL and writes a
 GUI installer, portable archive and `SHA256SUMS-windows.txt` to `dist/`.
 
 Portable (foreground, administrator / root rights needed):
