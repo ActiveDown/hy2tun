@@ -23,6 +23,9 @@
   `Hy2Tun-1.2.2-portable-windows-amd64.zip` — переносная версия.
   Сборки без Authenticode-подписи: возможно предупреждение Windows
   «неизвестный издатель».
-- Android 1.2.1: прежний APK без пересборки.
-- macOS 1.1.0: прежние установщик, приложение и universal-архив без пересборки.
-- Контрольные суммы: `SHA256SUMS.txt`.
+- Android 1.2.1: `Hy2Tun-1.2.1-android.apk` — release APK, подписанный прежним
+  ключом Hy2Tun, для arm64-v8a, armeabi-v7a и x86_64; без пересборки.
+- macOS 1.1.0: `Hy2Tun-1.1.0-macos-installer.pkg`, `Hy2Tun-1.1.0-macos-app.zip`,
+  `Hy2Tun-1.1.0-macos-universal.tar.gz` — прежние файлы без пересборки
+  и изменения содержимого.
+- Контрольные суммы: `SHA256SUMS.txt` и отдельные файлы для каждой платформы.
