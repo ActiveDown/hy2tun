@@ -18,7 +18,7 @@ func TestProvisionScriptUntrustedConfiguration(t *testing.T) {
 	domain := "host'$(touch /tmp/hy2tun-must-not-run);.example.com"
 	password := "secret\nHY2TUN_CONFIG\n$(id);'\"\\"
 	email := "a\"\n: value@example.com"
-	script, err := provisionScript(provisionRequest{Domain: domain, Email: email, SSHPort: 2222}, password, "statssecret")
+	script, err := provisionScript(provisionRequest{Domain: domain, Email: email, SSHPort: 2222}, password, "obfspassword", "statssecret")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,6 +49,12 @@ func TestProvisionScriptUntrustedConfiguration(t *testing.T) {
 		Auth struct {
 			Users map[string]string `yaml:"userpass"`
 		} `yaml:"auth"`
+		Obfs struct {
+			Type       string `yaml:"type"`
+			Salamander struct {
+				Password string `yaml:"password"`
+			} `yaml:"salamander"`
+		} `yaml:"obfs"`
 		TrafficStats struct {
 			Listen string `yaml:"listen"`
 			Secret string `yaml:"secret"`
@@ -60,13 +66,16 @@ func TestProvisionScriptUntrustedConfiguration(t *testing.T) {
 	if len(decoded.ACME.Domains) != 1 || decoded.ACME.Domains[0] != domain || decoded.ACME.Email != email || decoded.Auth.Users["Admin"] != password {
 		t.Fatalf("configuration data changed: %#v", decoded)
 	}
+	if decoded.Obfs.Type != "salamander" || decoded.Obfs.Salamander.Password != "obfspassword" {
+		t.Fatalf("obfuscation misconfigured: %#v", decoded.Obfs)
+	}
 	if decoded.TrafficStats.Listen != "127.0.0.1:9765" || decoded.TrafficStats.Secret == "" {
 		t.Fatalf("traffic stats misconfigured: %#v", decoded.TrafficStats)
 	}
 }
 
 func provisionTestScript(domain string) (string, error) {
-	return provisionScript(provisionRequest{Domain: domain, Email: "a@example.com", SSHPort: 2222}, "password", "statssecret")
+	return provisionScript(provisionRequest{Domain: domain, Email: "a@example.com", SSHPort: 2222}, "password", "obfspassword", "statssecret")
 }
 
 func TestProvisionScriptRefusesUnprivilegedBeforeMutations(t *testing.T) {
@@ -77,7 +86,7 @@ func TestProvisionScriptRefusesUnprivilegedBeforeMutations(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bin, "id"), []byte("#!/bin/sh\nprintf '12345\\n'\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	script, err := provisionScript(provisionRequest{Domain: "vpn.example.com", SSHPort: 22}, "password", "statssecret")
+	script, err := provisionScript(provisionRequest{Domain: "vpn.example.com", SSHPort: 22}, "password", "obfspassword", "statssecret")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +100,7 @@ func TestProvisionScriptRefusesUnprivilegedBeforeMutations(t *testing.T) {
 }
 
 func TestProvisionScriptGuardsExistingServersAndReadiness(t *testing.T) {
-	script, err := provisionScript(provisionRequest{Domain: "vpn.example.com", SSHPort: 2222}, "password", "statssecret")
+	script, err := provisionScript(provisionRequest{Domain: "vpn.example.com", SSHPort: 2222}, "password", "obfspassword", "statssecret")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,11 +123,32 @@ func TestProvisionScriptGuardsExistingServersAndReadiness(t *testing.T) {
 
 func TestProvisionScriptRejectsIncompleteInput(t *testing.T) {
 	for _, req := range []provisionRequest{{}, {Domain: "vpn.example.com", SSHPort: -1}, {Domain: "vpn.example.com", SSHPort: 65536}} {
-		if _, err := provisionScript(req, "password", "statssecret"); err == nil {
+		if _, err := provisionScript(req, "password", "obfspassword", "statssecret"); err == nil {
 			t.Fatal("incomplete input accepted")
 		}
 	}
-	if _, err := provisionScript(provisionRequest{Domain: "vpn.example.com", SSHPort: 22}, "", "statssecret"); err == nil {
+	if _, err := provisionScript(provisionRequest{Domain: "vpn.example.com", SSHPort: 22}, "", "obfspassword", "statssecret"); err == nil {
 		t.Fatal("empty VPN password accepted")
+	}
+	if _, err := provisionScript(provisionRequest{Domain: "vpn.example.com", SSHPort: 22}, "password", "", "statssecret"); err == nil {
+		t.Fatal("empty obfuscation password accepted")
+	}
+}
+
+func TestProvisionLinkEnablesObfuscation(t *testing.T) {
+	link := provisionLink(provisionRequest{Domain: "vpn.example.com", Name: "Test"}, "vpnpw", "obfspw")
+	l, err := parseLink(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.Auth != "Admin:vpnpw" || l.Host != "vpn.example.com" || l.Port != "443" || l.SNI != "vpn.example.com" {
+		t.Fatalf("unexpected link data: %#v", l)
+	}
+	if l.Obfs != provisionObfsType || l.ObfsPassword != "obfspw" {
+		t.Fatalf("obfuscation missing from the link: %#v", l)
+	}
+	// Links written before obfuscation existed must stay plain.
+	if plain := provisionLink(provisionRequest{Domain: "vpn.example.com"}, "vpnpw", ""); strings.Contains(plain, "obfs") {
+		t.Fatalf("obfuscation added without a password: %s", plain)
 	}
 }

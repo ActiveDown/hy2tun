@@ -200,9 +200,18 @@ func (m *provisionManager) close() {
 	}
 }
 
-func provisionLink(req provisionRequest, password string) string {
+// provisionObfsType is the obfuscation the installer enables on new servers.
+// Salamander makes the QUIC flow look like random UDP, which defeats signature
+// based DPI; the client side of it is already understood by hy2tun links.
+const provisionObfsType = "salamander"
+
+func provisionLink(req provisionRequest, password, obfsPassword string) string {
 	u := url.URL{Scheme: "hy2", User: url.User("Admin:" + password), Host: net.JoinHostPort(req.Domain, "443"), Fragment: req.Name}
 	q := url.Values{"sni": {req.Domain}}
+	if obfsPassword != "" {
+		q.Set("obfs", provisionObfsType)
+		q.Set("obfs-password", obfsPassword)
+	}
 	u.RawQuery = q.Encode()
 	return u.String()
 }
@@ -227,7 +236,17 @@ func (m *provisionManager) run(ctx context.Context, j *provisionJob, req provisi
 	if _, err := rand.Read(statsSecret); err != nil {
 		statsSecret = nil
 	}
-	link := provisionLink(req, hex.EncodeToString(secret))
+	// Salamander is enabled on every new server, so its secret is generated with
+	// the VPN password and travels inside the imported link.
+	obfsSecret := make([]byte, 24)
+	if _, err := rand.Read(obfsSecret); err != nil {
+		m.update(j, func(s *provisionStatus) {
+			s.State = "failed"
+			s.Error = tr("Не удалось создать пароль обфускации.", "Could not generate an obfuscation password.")
+		})
+		return
+	}
+	link := provisionLink(req, hex.EncodeToString(secret), hex.EncodeToString(obfsSecret))
 	save := func() error {
 		if saved {
 			return nil
@@ -322,7 +341,7 @@ func (m *provisionManager) run(ctx context.Context, j *provisionJob, req provisi
 		}
 	}
 	m.update(j, func(s *provisionStatus) { s.State = "running" })
-	script, err := provisionScript(req, hex.EncodeToString(secret), hex.EncodeToString(statsSecret))
+	script, err := provisionScript(req, hex.EncodeToString(secret), hex.EncodeToString(obfsSecret), hex.EncodeToString(statsSecret))
 	if err != nil {
 		fail(tr("Не удалось подготовить установку.", "Could not prepare installation."))
 		return
@@ -513,7 +532,11 @@ func (e *Engine) verifyProvision(ctx context.Context, l *hy2Link, ip net.IP) err
 	defer conn.Close()
 	stop := context.AfterFunc(ctx, func() { conn.Close() })
 	defer stop()
-	c, _, err := client.NewClient(&client.Config{ServerAddr: &net.UDPAddr{IP: ip, Port: 443}, Auth: l.Auth, TLSConfig: l.tlsConfig(), ConnFactory: provisionConnFactory{provisionPacketConn{conn}}})
+	pc, err := wrapObfs(provisionPacketConn{conn}, l)
+	if err != nil {
+		return err
+	}
+	c, _, err := client.NewClient(&client.Config{ServerAddr: &net.UDPAddr{IP: ip, Port: 443}, Auth: l.Auth, TLSConfig: l.tlsConfig(), ConnFactory: provisionConnFactory{pc}})
 	if err != nil {
 		return err
 	}

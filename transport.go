@@ -47,18 +47,25 @@ func (f *connFactory) New(net.Addr) (net.PacketConn, error) {
 	if err != nil {
 		return nil, err
 	}
-	switch f.l.Obfs {
+	return wrapObfs(pc, f.l)
+}
+
+// wrapObfs puts the link's obfuscation layer above a packet connection, exactly
+// like the official client does. The installer enables Salamander by default, so
+// the deployment self-test has to wrap its socket the same way.
+func wrapObfs(pc net.PacketConn, l *hy2Link) (net.PacketConn, error) {
+	switch l.Obfs {
 	case "":
 		return pc, nil
 	case "salamander":
-		w, err := obfs.WrapPacketConnSalamander(pc, []byte(f.l.ObfsPassword))
+		w, err := obfs.WrapPacketConnSalamander(pc, []byte(l.ObfsPassword))
 		if err != nil {
 			pc.Close()
 			return nil, err
 		}
 		return w, nil
 	case "gecko":
-		w, err := obfs.WrapPacketConnGecko(pc, obfs.GeckoOptions{Password: []byte(f.l.ObfsPassword)})
+		w, err := obfs.WrapPacketConnGecko(pc, obfs.GeckoOptions{Password: []byte(l.ObfsPassword)})
 		if err != nil {
 			pc.Close()
 			return nil, err
@@ -66,7 +73,7 @@ func (f *connFactory) New(net.Addr) (net.PacketConn, error) {
 		return w, nil
 	}
 	pc.Close()
-	return nil, fmt.Errorf("unsupported obfs type %q", f.l.Obfs)
+	return nil, fmt.Errorf("unsupported obfs type %q", l.Obfs)
 }
 
 // transport returns the connection factory (nil = the library default) and the

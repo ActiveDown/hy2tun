@@ -208,9 +208,12 @@ func TestProvisionTrustBeforePasswordAndSuccessfulSave(t *testing.T) {
 	if err != nil || parsed.SNI != req.Domain || parsed.Host != req.Domain || !strings.HasPrefix(parsed.Auth, "Admin:") || len(parsed.Auth) != len("Admin:")+48 {
 		t.Fatalf("bad generated profile: %+v, %v", parsed, err)
 	}
+	if parsed.Obfs != provisionObfsType || len(parsed.ObfsPassword) != 48 {
+		t.Fatalf("obfuscation missing from the generated profile: %+v", parsed)
+	}
 	select {
 	case checked := <-verified:
-		if checked.Auth != parsed.Auth {
+		if checked.Auth != parsed.Auth || checked.ObfsPassword != parsed.ObfsPassword {
 			t.Fatal("verified a different profile")
 		}
 	default:
@@ -238,7 +241,7 @@ func TestProvisionTrustBeforePasswordAndSuccessfulSave(t *testing.T) {
 		t.Fatal("host key file is not private")
 	}
 	statusJSON, _ := json.Marshal(s)
-	for _, secret := range []string{req.Password, parsed.Auth, "installer-private-secret", "not-a-stage-secret"} {
+	for _, secret := range []string{req.Password, parsed.Auth, parsed.ObfsPassword, "installer-private-secret", "not-a-stage-secret"} {
 		if strings.Contains(string(statusJSON), secret) {
 			t.Fatal("secret escaped through deployment status")
 		}

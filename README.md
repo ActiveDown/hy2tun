@@ -4,9 +4,10 @@ A Windows, macOS and Android client for [Hysteria 2](https://v2.hysteria.network
 **per-application routing** and a window in the style of Amnezia. Written in Go on top of the official
 `hysteria/core/v2` library.
 
-> **Windows: 1.2.2. Android: 1.2.1. macOS: 1.1.0.** Windows 1.2.2 fixes the
-> growing Wintun adapter number and turns IPv6 off on the tunnel adapter when the
-> network has none. Android 1.2.1 includes the SSH admin panel with visible zero
+> **Windows: 1.3.0. Android: 1.2.1. macOS: 1.1.0.** Windows 1.3.0 turns on
+> Salamander obfuscation by default for servers deployed from the app: the generated
+> profile already carries `obfs=salamander`, and the post-install UDP check wraps its
+> socket the same way. Android 1.2.1 includes the SSH admin panel with visible zero
 > counters, a traffic-stats toggle and the IPv6 connection fallback. The existing
 > macOS packages are unchanged; they do not include these newer features.
 
@@ -41,6 +42,8 @@ A Windows, macOS and Android client for [Hysteria 2](https://v2.hysteria.network
   can be enabled or disabled from the panel; a restart resets the counters.
 - **Obfuscation and port hopping**: `obfs=salamander` (or `gecko`) with `obfs-password`, a port range in the
   address (`host:20000-30000`) or `mport=20000-30000`, `hop-interval=<seconds>`, and `pinSHA256` certificate pinning.
+  Servers deployed from the app get **Salamander enabled by default**: the generated profile
+  already contains the obfuscation parameters.
 - **English and Russian** UI (English by default).
 - Self-contained **installer** (`Hy2Tun-Setup.exe`).
 
@@ -163,6 +166,11 @@ deployment. A separate random VPN password is generated for each server.
 
 Deployment installs Hysteria 2.13.0, obtains and renews a Let's Encrypt certificate,
 enables startup through systemd, and configures UFW while preserving the SSH port.
+The server config gets **Salamander obfuscation with a second random password**, so the
+QUIC flow no longer carries a recognisable Hysteria signature; the imported profile
+already includes `obfs=salamander` and `obfs-password`, and the post-install UDP test
+wraps its socket the same way. Links for servers installed before this change stay
+plain and keep working.
 Existing Hysteria installations and websites in `/var/www/masq` are not overwritten.
 The finished profile appears automatically in the list; connecting immediately is
 optional. A failed UDP test still retains the installed profile with a warning.
