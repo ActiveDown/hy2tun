@@ -135,6 +135,23 @@ func TestProvisionScriptRejectsIncompleteInput(t *testing.T) {
 	}
 }
 
+func TestProvisionScriptMakesConfigReadableForServiceUser(t *testing.T) {
+	script, err := provisionTestScript("vpn.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepare := strings.Index(script, "install -d -m 750 -o root -g hysteria /etc/hysteria")
+	write := strings.Index(script, "base64 -d > /etc/hysteria/config.yaml")
+	check := strings.Index(script, "su -s /bin/sh hysteria -c 'test -r /etc/hysteria/config.yaml'")
+	stage := strings.Index(script, "stage certificate")
+	if prepare < 0 || write < 0 || check < 0 || stage < 0 {
+		t.Fatalf("permissions handling is missing: prepare=%d write=%d check=%d stage=%d", prepare, write, check, stage)
+	}
+	if !(prepare < write && write < check && check < stage) {
+		t.Fatal("permissions handling runs in the wrong order")
+	}
+}
+
 func TestProvisionLinkEnablesObfuscation(t *testing.T) {
 	link := provisionLink(provisionRequest{Domain: "vpn.example.com", Name: "Test"}, "vpnpw", "obfspw")
 	l, err := parseLink(link)

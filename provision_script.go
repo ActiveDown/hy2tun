@@ -134,11 +134,17 @@ base64 -d > /var/www/masq/index.html <<'HY2TUN_HTML'
 @@SITE@@
 HY2TUN_HTML
 chmod 644 /var/www/masq/index.html
+# The installer inherits umask 077, so /etc/hysteria may be readable only by
+# root; the service runs as hysteria and must be able to read its config.
+install -d -m 750 -o root -g hysteria /etc/hysteria
 base64 -d > /etc/hysteria/config.yaml <<'HY2TUN_CONFIG'
 @@CONFIG@@
 HY2TUN_CONFIG
 chown root:hysteria /etc/hysteria/config.yaml
 chmod 640 /etc/hysteria/config.yaml
+# Fail here with the real reason instead of timing out later on a service that
+# cannot read its own configuration.
+su -s /bin/sh hysteria -c 'test -r /etc/hysteria/config.yaml' || fail configure_failed
 install -d -o hysteria -g hysteria -m 700 /var/lib/hysteria/acme
 # Keep this service's journals in RAM, bounded independently of OS logs.
 install -d -m 755 /etc/systemd/system/hysteria-server.service.d
