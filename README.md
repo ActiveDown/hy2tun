@@ -4,12 +4,10 @@ A Windows, macOS and Android client for [Hysteria 2](https://v2.hysteria.network
 **per-application routing** and a window in the style of Amnezia. Written in Go on top of the official
 `hysteria/core/v2` library.
 
-> **Windows: 1.3.0. Android: 1.2.1. macOS: 1.1.0.** Windows 1.3.0 turns on
-> Salamander obfuscation by default for servers deployed from the app: the generated
+> **Windows: 1.3.0. Android: 1.3.0. macOS: 1.1.0.** Windows and Android 1.3.0 turn
+> on Salamander obfuscation by default for servers deployed from the app: the generated
 > profile already carries `obfs=salamander`, and the post-install UDP check wraps its
-> socket the same way. Android 1.2.1 includes the SSH admin panel with visible zero
-> counters, a traffic-stats toggle and the IPv6 connection fallback. The existing
-> macOS packages are unchanged; they do not include these newer features.
+> socket the same way. The existing macOS packages are unchanged and stay on 1.1.0.
 
 ## Features
 
